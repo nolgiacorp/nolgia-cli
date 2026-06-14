@@ -1,0 +1,30 @@
+[package]
+name = "nolgia-client"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[lib]
+name = "nolgia_client"
+path = "src/lib.rs"
+
+[dependencies]
+progenitor-client = "0.14"
+reqwest = { version = "0.13", default-features = false, features = ["json", "gzip", "rustls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+uuid = { version = "1", features = ["serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+[build-dependencies]
+openapiv3 = "2"
+prettyplease = "0.2"
+progenitor = "0.14"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "gzip", "rustls"] }
+serde_yaml = "0.9"
+syn = { version = "2", features = ["full"] }
+regex = "1"
+
+[dev-dependencies]
+wiremock = "0.6"

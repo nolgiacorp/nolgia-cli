@@ -1,0 +1,32 @@
+[package]
+name = "nolgia-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "nolgia"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+async-trait.workspace = true
+clap.workspace = true
+chrono.workspace = true
+directories.workspace = true
+keyring.workspace = true
+nolgia-client.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+wiremock = "0.6"
+
+[features]
+e2e = []

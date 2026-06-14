@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test, Lint & Format
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@9d7e65c3fdb52b106803724bf48063d05e9c7a95
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+          cache: true
+
+      - name: Run tests
+        run: cargo test --workspace --all-features --locked
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  build-release:
+    name: Build ${{ matrix.archive }}
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            targets: x86_64-unknown-linux-gnu
+            binary: nolgia
+            output_ext: ''
+            archive: nolgia-x86_64-unknown-linux-gnu
+            universal: false
+          - os: macos-latest
+            targets: x86_64-apple-darwin aarch64-apple-darwin
+            binary: nolgia
+            output_ext: ''
+            archive: nolgia-x86_64-apple-darwin
+            universal: true
+          - os: windows-latest
+            targets: x86_64-pc-windows-msvc
+            binary: nolgia
+            output_ext: '.exe'
+            archive: nolgia-x86_64-pc-windows-msvc
+            universal: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Install Rust toolchain with cross-compile targets
+        uses: actions-rust-lang/setup-rust-toolchain@9d7e65c3fdb52b106803724bf48063d05e9c7a95
+        with:
+          toolchain: stable
+          targets: ${{ matrix.targets }}
+          cache: true
+
+      - name: Build release binary
+        shell: bash
+        run: |
+          set -euxo pipefail
+          for target in ${{ matrix.targets }}; do
+            cargo build --release --target "$target" --bin ${{ matrix.binary }} --locked
+          done
+
+      - name: Create universal macOS binary
+        if: matrix.universal
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p target/universal-release
+          lipo -create \
+            -output target/universal-release/${{ matrix.binary }} \
+            target/x86_64-apple-darwin/release/${{ matrix.binary }} \
+            target/aarch64-apple-darwin/release/${{ matrix.binary }}
+
+      - name: Strip and rename binary
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BINARY="${{ matrix.binary }}${{ matrix.output_ext }}"
+          ARCHIVE="${{ matrix.archive }}${{ matrix.output_ext }}"
+
+          if [ "${{ matrix.universal }}" = "true" ]; then
+            SRC="target/universal-release/${BINARY}"
+          else
+            TARGET=$(echo "${{ matrix.targets }}" | awk '{print $1}')
+            SRC="target/${TARGET}/release/${BINARY}"
+          fi
+
+          case "${{ runner.os }}" in
+            Linux)
+              strip "${SRC}"
+              ;;
+            macOS)
+              strip -x "${SRC}"
+              ;;
+          esac
+
+          mv "${SRC}" "${ARCHIVE}"
+          file "${ARCHIVE}"
+          ls -la "${ARCHIVE}"
+
+      - name: Upload binary as artifact
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}${{ matrix.output_ext }}
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Create GitHub Release
+    needs: [test, build-release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16
+        with:
+          path: artifacts
+
+      - name: Show downloaded artifacts
+        run: |
+          echo "== artifacts tree =="
+          find artifacts -maxdepth 3 -print
+          echo "== file types =="
+          for f in $(find artifacts -type f); do
+            printf '%-12s %s\n' "$(file -b "${f}")" "${f}"
+          done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@de68b1b0886157b3c984d524b7f86e5c2f3670d3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/nolgia-x86_64-unknown-linux-gnu/nolgia-x86_64-unknown-linux-gnu
+            artifacts/nolgia-x86_64-apple-darwin/nolgia-x86_64-apple-darwin
+            artifacts/nolgia-x86_64-pc-windows-msvc/nolgia-x86_64-pc-windows-msvc.exe
