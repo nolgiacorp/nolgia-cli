@@ -6,9 +6,8 @@ use nolgia_client::types::{
 };
 use serde::Serialize;
 use std::{fs, path::PathBuf};
-use uuid::Uuid;
 
-use crate::output::{print_json, OutputFormat};
+use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
 
@@ -21,7 +20,7 @@ pub enum GenCommand {
 
 #[derive(Args, Debug)]
 pub struct ImageArgs {
-    #[arg(long, default_value = "fal-ai/flux-pro/v1.1")]
+    #[arg(long, default_value = "flux-pro")]
     pub model: ImageModel,
     #[arg(long)]
     pub prompt: String,
@@ -76,6 +75,8 @@ struct AsyncJob {
     job_id: String,
 }
 
+const DEFAULT_WAIT_TIMEOUT_SECONDS: u64 = 300;
+
 pub async fn run(command: GenCommand, ctx: &CommandContext) -> Result<()> {
     match command {
         GenCommand::Image(args) => image(args, ctx).await,
@@ -90,17 +91,31 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .prompt(args.prompt)
         .try_into()
         .context("building image request")?;
-    let response = ctx.client().generate_image().body(body).send().await.context("generating image")?.into_inner();
+    let job = ctx
+        .client()
+        .generate_image()
+        .body(body)
+        .send()
+        .await
+        .context("submitting image job")?
+        .into_inner();
     if args.no_wait {
-        return print_json(&AsyncJob { job_id: response.request_id });
+        return print_json(&AsyncJob {
+            job_id: job.id.to_string(),
+        });
     }
+    let job = wait_for_asset(job.id, ctx, DEFAULT_WAIT_TIMEOUT_SECONDS).await?;
+    let asset = job
+        .asset
+        .as_ref()
+        .context("image job completed without asset")?;
     if let Some(out) = args.out {
-        download(&response.asset.signed_url, &out).await?;
+        download(&asset.signed_url, &out).await?;
     }
     match ctx.format() {
-        OutputFormat::Json => print_json(&response),
+        OutputFormat::Json => print_json(&job),
         OutputFormat::Text => {
-            println!("{}", response.asset.signed_url);
+            println!("{}", asset.signed_url);
             Ok(())
         }
     }
@@ -112,12 +127,20 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .prompt(args.prompt)
         .try_into()
         .context("building video request")?;
-    let mut job = ctx.client().generate_video().body(body).send().await.context("submitting video job")?.into_inner();
+    let mut job = ctx
+        .client()
+        .generate_video()
+        .body(body)
+        .send()
+        .await
+        .context("submitting video job")?
+        .into_inner();
     if args.no_wait || !args.wait {
-        return print_json(&AsyncJob { job_id: job.id.to_string() });
+        return print_json(&AsyncJob {
+            job_id: job.id.to_string(),
+        });
     }
-    let timeout = std::num::NonZeroU64::new(args.timeout).context("--timeout must be greater than zero")?;
-    job = ctx.client().wait_for_job().id(job.id).timeout_seconds(timeout).send().await.context("waiting for video job")?.into_inner();
+    job = wait_for_asset(job.id, ctx, args.timeout).await?;
     if let (Some(asset), Some(out)) = (&job.asset, args.out.as_ref()) {
         download(&asset.signed_url, out).await?;
     }
@@ -137,24 +160,59 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
         .format(args.format)
         .try_into()
         .context("building audio request")?;
-    let response = ctx.client().generate_audio().body(body).send().await.context("generating audio")?.into_inner();
+    let job = ctx
+        .client()
+        .generate_audio()
+        .body(body)
+        .send()
+        .await
+        .context("submitting audio job")?
+        .into_inner();
     if args.no_wait {
-        return print_json(&AsyncJob { job_id: Uuid::new_v4().to_string() });
+        return print_json(&AsyncJob {
+            job_id: job.id.to_string(),
+        });
     }
+    let job = wait_for_asset(job.id, ctx, DEFAULT_WAIT_TIMEOUT_SECONDS).await?;
+    let asset = job
+        .asset
+        .as_ref()
+        .context("audio job completed without asset")?;
     if let Some(out) = args.out {
-        download(&response.asset.signed_url, &out).await?;
+        download(&asset.signed_url, &out).await?;
     }
     match ctx.format() {
-        OutputFormat::Json => print_json(&response),
+        OutputFormat::Json => print_json(&job),
         OutputFormat::Text => {
-            println!("{}", response.asset.signed_url);
+            println!("{}", asset.signed_url);
             Ok(())
         }
     }
 }
 
+async fn wait_for_asset(
+    job_id: uuid::Uuid,
+    ctx: &CommandContext,
+    timeout_seconds: u64,
+) -> Result<nolgia_client::types::Job> {
+    let timeout = std::num::NonZeroU64::new(timeout_seconds)
+        .context("--timeout must be greater than zero")?;
+    ctx.client()
+        .wait_for_job()
+        .id(job_id)
+        .timeout_seconds(timeout)
+        .send()
+        .await
+        .context("waiting for generation job")
+        .map(|response| response.into_inner())
+}
+
 async fn download(url: &str, out: &PathBuf) -> Result<()> {
-    let bytes = reqwest::get(url).await.with_context(|| format!("downloading {url}"))?.bytes().await?;
+    let bytes = reqwest::get(url)
+        .await
+        .with_context(|| format!("downloading {url}"))?
+        .bytes()
+        .await?;
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent).with_context(|| format!("creating {}", parent.display()))?;
     }
