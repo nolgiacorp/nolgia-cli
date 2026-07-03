@@ -13,6 +13,8 @@ pub enum AssetsCommand {
     List(ListAssetsArgs),
     Get(GetAssetArgs),
     Delete(DeleteAssetArgs),
+    /// Upload an image (png/jpeg/webp) and get a reusable asset id
+    Upload(UploadAssetArgs),
 }
 
 #[derive(Args, Debug)]
@@ -37,11 +39,17 @@ pub struct DeleteAssetArgs {
     pub asset_id: Uuid,
 }
 
+#[derive(Args, Debug)]
+pub struct UploadAssetArgs {
+    pub file: PathBuf,
+}
+
 pub async fn run(command: AssetsCommand, ctx: &CommandContext) -> Result<()> {
     match command {
         AssetsCommand::List(args) => list(args, ctx).await,
         AssetsCommand::Get(args) => get(args, ctx).await,
         AssetsCommand::Delete(args) => delete(args, ctx).await,
+        AssetsCommand::Upload(args) => upload(args, ctx).await,
     }
 }
 
@@ -113,6 +121,17 @@ async fn delete(args: DeleteAssetArgs, ctx: &CommandContext) -> Result<()> {
         OutputFormat::Json => print_json(&serde_json::json!({ "deleted": args.asset_id })),
         OutputFormat::Text => {
             println!("deleted {}", args.asset_id);
+            Ok(())
+        }
+    }
+}
+
+async fn upload(args: UploadAssetArgs, ctx: &CommandContext) -> Result<()> {
+    let asset = super::r#gen::upload_image_asset(&args.file, ctx).await?;
+    match ctx.format() {
+        OutputFormat::Json => print_json(&asset),
+        OutputFormat::Text => {
+            println!("{} {} {}", asset.id, asset.modality, asset.signed_url);
             Ok(())
         }
     }

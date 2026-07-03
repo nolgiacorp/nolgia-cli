@@ -310,6 +310,15 @@ async fn resolve_input_image(input: &str, ctx: &CommandContext) -> Result<String
 }
 
 async fn upload_input_image(path: &PathBuf, ctx: &CommandContext) -> Result<String> {
+    Ok(upload_image_asset(path, ctx).await?.signed_url)
+}
+
+/// Upload a local image to /assets; shared by `gen --input` and
+/// `assets upload`.
+pub(crate) async fn upload_image_asset(
+    path: &PathBuf,
+    ctx: &CommandContext,
+) -> Result<nolgia_client::types::Asset> {
     use base64::Engine as _;
     let content_type = match path
         .extension()
@@ -320,10 +329,7 @@ async fn upload_input_image(path: &PathBuf, ctx: &CommandContext) -> Result<Stri
         Some("png") => UploadAssetRequestContentType::ImagePng,
         Some("jpg") | Some("jpeg") => UploadAssetRequestContentType::ImageJpeg,
         Some("webp") => UploadAssetRequestContentType::ImageWebp,
-        other => anyhow::bail!(
-            "unsupported --input extension {:?} (png/jpeg/webp only)",
-            other
-        ),
+        other => anyhow::bail!("unsupported image extension {other:?} (png/jpeg/webp only)"),
     };
     let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let body: UploadAssetRequest = UploadAssetRequest::builder()
@@ -334,19 +340,18 @@ async fn upload_input_image(path: &PathBuf, ctx: &CommandContext) -> Result<Stri
                 .and_then(|n| n.to_str())
                 .map(UploadAssetRequestFilename::try_from)
                 .transpose()
-                .map_err(|e| anyhow::anyhow!("--input filename: {e}"))?,
+                .map_err(|e| anyhow::anyhow!("filename: {e}"))?,
         )
         .try_into()
         .context("building asset upload")?;
-    let asset = ctx
+    Ok(ctx
         .client()
         .upload_asset()
         .body(body)
         .send()
         .await
-        .context("uploading --input image")?
-        .into_inner();
-    Ok(asset.signed_url)
+        .with_context(|| format!("uploading {}", path.display()))?
+        .into_inner())
 }
 
 async fn wait_for_asset(
