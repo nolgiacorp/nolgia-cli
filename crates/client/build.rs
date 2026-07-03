@@ -9,13 +9,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let version_file = manifest_dir.join("openapi-version.toml");
     let local_spec = manifest_dir.join("../../../nolgia-api/api/openapi.yaml");
+    let vendored_spec = manifest_dir.join("openapi.yaml");
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
 
     println!("cargo:rerun-if-changed={}", version_file.display());
     println!("cargo:rerun-if-changed={}", local_spec.display());
+    println!("cargo:rerun-if-changed={}", vendored_spec.display());
     println!("cargo:rerun-if-env-changed=NOLGIA_OPENAPI_RELEASE_URL");
 
-    let spec = load_spec(&local_spec, &version_file)?;
+    let spec = load_spec(&local_spec, &vendored_spec, &version_file)?;
 
     let mut settings = GenerationSettings::default();
     settings.with_interface(InterfaceStyle::Builder);
@@ -29,8 +31,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn load_spec(local_spec: &Path, version_file: &Path) -> Result<OpenAPI, Box<dyn Error>> {
-    let raw_text = if is_release_profile() && !local_spec.exists() {
+fn load_spec(local_spec: &Path, vendored_spec: &Path, version_file: &Path) -> Result<OpenAPI, Box<dyn Error>> {
+    // Prefer the sibling nolgia-api checkout (dev flow), then the vendored
+    // snapshot (CI), then the release asset download.
+    let raw_text = if local_spec.exists() {
+        fs::read_to_string(local_spec)?
+    } else if vendored_spec.exists() {
+        fs::read_to_string(vendored_spec)?
+    } else if is_release_profile() {
         let version = read_spec_version(version_file)?;
         let url = env::var("NOLGIA_OPENAPI_RELEASE_URL").unwrap_or_else(|_| {
             format!("https://github.com/nolgiacorp/nolgia-api/releases/download/v{version}/openapi.yaml")
@@ -39,7 +47,7 @@ fn load_spec(local_spec: &Path, version_file: &Path) -> Result<OpenAPI, Box<dyn 
         let response = response.error_for_status()?;
         response.text()?
     } else {
-        fs::read_to_string(local_spec)?
+        return Err(format!("no OpenAPI spec found at {} or {}", local_spec.display(), vendored_spec.display()).into());
     };
 
     let mut value: Value = serde_yaml::from_str(&sanitize_openapi_text(&raw_text))?;
