@@ -60,9 +60,27 @@ nolgia gen audio --prompt "Lofi hip hop beats for studying"
 
 # Generate video (async; --no-wait returns the job id immediately)
 nolgia gen video --prompt "A drone shot over a coastline"
+
+# Full video control: duration, framing, reproducibility, native audio
+nolgia gen video --prompt "A drone shot over a coastline" \
+  --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
+  --duration-seconds 12 --aspect-ratio 16:9 --seed 42 \
+  --negative-prompt "text, watermarks" --generate-audio true \
+  --out coastline.mp4
+
+# Image-to-video: --input uploads the file to /assets and passes it as the start image
+nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
+  --input character.png --prompt "she turns toward the camera and smiles"
+
+# Multi-shot sequences (up to 8 shots; clip duration = sum; --prompt is style/context;
+# "|" separates an optional per-shot audio direction)
+nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
+  --prompt "Gritty 35mm film look." --generate-audio true \
+  --shot "8:WIDE SHOT. Rural highway, a single car heading south.|engine, wind" \
+  --shot "4:MCU. The driver glances at the dead radio.|AM static cuts out"
 ```
 
-Model selection is via `--model`; defaults are `flux-pro` (image), `fal-ai/stable-audio-25/text-to-audio` (audio), and `fal-ai/kling-video/v3/text-to-video` (video).
+Model selection is via `--model`; defaults are `flux-pro` (image), `fal-ai/stable-audio-25/text-to-audio` (audio), and `fal-ai/kling-video/v3/text-to-video` (video). Video durations are model-dependent: Kling v3 3–15s, Seedance v2 Pro 4–15s, Veo 3.1 exactly 4/6/8s. `--generate-audio` is honored by Seedance and Veo. `--shot` and `--generate-audio` require an API deployment with multi-shot support (nolgia-api `feat/video-generate-audio`).
 
 ### Jobs
 
