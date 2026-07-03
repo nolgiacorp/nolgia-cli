@@ -449,8 +449,9 @@ pub async fn run(
     let manager = AuthManager::new(base_url, KeyringTokenStore);
     match command {
         AuthCommand::Token => {
-            let resolved = token.or_else(load_token)
-                .ok_or_else(|| anyhow::anyhow!("not logged in — run `nolgia auth login` or set NOLGIA_TOKEN"))?;
+            let resolved = token.or_else(load_token).ok_or_else(|| {
+                anyhow::anyhow!("not logged in — run `nolgia auth login` or set NOLGIA_TOKEN")
+            })?;
             println!("{resolved}");
             Ok(())
         }

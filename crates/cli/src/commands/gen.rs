@@ -162,8 +162,7 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
                 .map(|s| s.duration_seconds.get())
                 .sum()
         };
-        let quote =
-            super::models::quote_video(ctx, &args.model.to_string(), duration).await?;
+        let quote = super::models::quote_video(ctx, &args.model.to_string(), duration).await?;
         println!("{quote}");
         return Ok(());
     }

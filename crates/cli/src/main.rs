@@ -4,7 +4,9 @@ mod output;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use commands::{CommandContext, account, assets, billing, r#gen, models, pat, skills, status, wait};
+use commands::{
+    CommandContext, account, assets, billing, r#gen, models, pat, skills, status, wait,
+};
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
 

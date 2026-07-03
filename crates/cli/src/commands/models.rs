@@ -109,20 +109,27 @@ fn capability_line(model: &Model) -> String {
 
 /// Estimate the credit charge for a video generation from the live catalog.
 /// Mirrors the server: ceil(credits * duration / baseline_seconds).
-pub async fn quote_video(ctx: &CommandContext, model_id: &str, duration_seconds: u64) -> Result<String> {
+pub async fn quote_video(
+    ctx: &CommandContext,
+    model_id: &str,
+    duration_seconds: u64,
+) -> Result<String> {
     let models = fetch(ctx).await?;
-    let model = models
-        .iter()
-        .find(|m| m.id == model_id)
-        .with_context(|| format!("model {model_id:?} not in the catalog — see `nolgia models list`"))?;
+    let model = models.iter().find(|m| m.id == model_id).with_context(|| {
+        format!("model {model_id:?} not in the catalog — see `nolgia models list`")
+    })?;
     let Some(cost) = &model.cost else {
-        return Ok(format!("{model_id}: pricing pending — the server will quote at submit time"));
+        return Ok(format!(
+            "{model_id}: pricing pending — the server will quote at submit time"
+        ));
     };
     let credits = match cost.baseline_seconds {
         Some(base) => (cost.credits.get() * duration_seconds).div_ceil(base.get()),
         None => cost.credits.get(),
     };
-    Ok(format!("{credits} credits ({model_id}, {duration_seconds}s)"))
+    Ok(format!(
+        "{credits} credits ({model_id}, {duration_seconds}s)"
+    ))
 }
 
 async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
@@ -151,10 +158,12 @@ async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
 
 async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
     let models = fetch(ctx).await?;
-    let model = models
-        .iter()
-        .find(|m| m.id == args.id)
-        .with_context(|| format!("model {:?} not in the catalog — see `nolgia models list`", args.id))?;
+    let model = models.iter().find(|m| m.id == args.id).with_context(|| {
+        format!(
+            "model {:?} not in the catalog — see `nolgia models list`",
+            args.id
+        )
+    })?;
     match ctx.format() {
         OutputFormat::Json => print_json(model),
         OutputFormat::Text => {
