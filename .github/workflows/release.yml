@@ -174,3 +174,45 @@ jobs:
             artifacts/nolgia-x86_64-unknown-linux-gnu/nolgia-x86_64-unknown-linux-gnu
             artifacts/nolgia-x86_64-apple-darwin/nolgia-x86_64-apple-darwin
             artifacts/nolgia-x86_64-pc-windows-msvc/nolgia-x86_64-pc-windows-msvc.exe
+
+  publish-crates:
+    name: Publish to crates.io
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+        with:
+          toolchain: stable
+          cache: true
+
+      - name: Install libdbus (keyring crate dependency)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
+
+      - name: Check for registry token
+        id: token
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [ -n "$CARGO_REGISTRY_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "CARGO_REGISTRY_TOKEN is not set; skipping crates.io publish."
+          fi
+
+      - name: Publish crates
+        if: steps.token.outputs.present == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          # cargo waits for the client to land in the index before the cli publish resolves it
+          cargo publish -p nolgia-client --locked
+          cargo publish -p nolgia-cli --locked
