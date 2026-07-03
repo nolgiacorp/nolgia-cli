@@ -4,7 +4,9 @@ mod output;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use commands::{CommandContext, account, assets, billing, r#gen, pat, skills, status, wait};
+use commands::{
+    CommandContext, account, assets, billing, r#gen, models, pat, skills, status, wait,
+};
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
 
@@ -48,6 +50,38 @@ pub enum Commands {
     Pat(pat::PatCommand),
     #[command(subcommand, about = "Bundled AI-agent skills (list, show, install)")]
     Skills(skills::SkillsCommand),
+    #[command(subcommand, about = "Live model catalog with capabilities and pricing")]
+    Models(models::ModelsCommand),
+    #[command(about = "Generate shell completions (bash, zsh, fish, powershell)")]
+    Completion(CompletionArgs),
+}
+
+#[derive(clap::Args, Debug)]
+pub struct CompletionArgs {
+    #[arg(value_enum)]
+    pub shell: clap_complete::Shell,
+}
+
+/// Detect the calling surface for the X-Nolgia-Surface header. Override
+/// with NOLGIA_SURFACE.
+fn detect_surface() -> String {
+    if let Ok(s) = std::env::var("NOLGIA_SURFACE") {
+        return s;
+    }
+    let has = |k: &str| std::env::var_os(k).is_some();
+    if has("CLAUDE_CODE_ENTRYPOINT") || has("CLAUDE_AGENT_SDK_VERSION") || has("CLAUDECODE") {
+        return "claude-code".into();
+    }
+    if has("CODEX_SANDBOX") || has("CODEX_THREAD_ID") {
+        return "codex".into();
+    }
+    if has("HERMES_HOME") && has("HERMES_DASHBOARD") {
+        return "hermes".into();
+    }
+    if has("AI_AGENT") {
+        return "agent".into();
+    }
+    "cli".into()
 }
 
 #[tokio::main]
@@ -64,6 +98,11 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     if let Commands::Skills(command) = cli.command {
         return skills::run(command, format);
     }
+    if let Commands::Completion(args) = cli.command {
+        let mut cmd = <Cli as clap::CommandFactory>::command();
+        clap_complete::generate(args.shell, &mut cmd, "nolgia", &mut std::io::stdout());
+        return Ok(());
+    }
 
     let token = cli.token.or_else(auth::load_token).unwrap_or_default();
     let client = build_client(&cli.api_url, token)?;
@@ -79,11 +118,13 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Billing(command) => billing::run(command, &ctx).await,
         Commands::Pat(command) => pat::run(command, &ctx).await,
         Commands::Skills(_) => unreachable!("skills handled before client construction"),
+        Commands::Completion(_) => unreachable!("completion handled before client construction"),
+        Commands::Models(command) => models::run(command, &ctx).await,
     }
 }
 
 fn build_client(base_url: &str, token: String) -> Result<Client> {
-    let builder = ClientBuilder::new(base_url);
+    let builder = ClientBuilder::new(base_url).surface(detect_surface());
     let builder = if token.is_empty() {
         builder
     } else {

@@ -6,7 +6,10 @@ use nolgia_client::types::{
     UploadAssetRequestContentType, UploadAssetRequestFilename, VideoModel, VideoShot,
 };
 use serde::Serialize;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use crate::output::{OutputFormat, print_json};
 
@@ -36,14 +39,18 @@ pub struct ImageArgs {
 }
 
 #[derive(Args, Debug)]
+#[command(after_help = "Video jobs cost credits (see `nolgia models list`). \
+Agents: estimate with --cost-only first and confirm with the user before \
+submitting batches over ~2000 credits.")]
 pub struct VideoArgs {
     #[arg(long, default_value = "fal-ai/kling-video/v3/text-to-video")]
     pub model: VideoModel,
     #[arg(long)]
     pub prompt: String,
-    /// Start image for image-to-video models; uploaded to /assets first.
+    /// Start image for image-to-video models: a local file (uploaded to
+    /// /assets) or the UUID of an existing asset (reused, fresh signed URL).
     #[arg(long)]
-    pub input: Option<PathBuf>,
+    pub input: Option<String>,
     #[arg(long)]
     pub out: Option<PathBuf>,
     /// e.g. 16:9, 9:16, 1:1, 4:3, 3:4 (model-dependent)
@@ -59,6 +66,10 @@ pub struct VideoArgs {
     /// Generate a synchronized audio track (Seedance/Veo)
     #[arg(long, action = clap::ArgAction::Set)]
     pub generate_audio: Option<bool>,
+    /// Print the credit estimate from the live catalog and exit without
+    /// creating a job
+    #[arg(long, default_value_t = false)]
+    pub cost_only: bool,
     /// Multi-shot segment "SECONDS:PROMPT" or "SECONDS:PROMPT|AUDIO DIRECTION".
     /// Repeat up to 8 times; clip duration = sum, --prompt becomes style/context.
     #[arg(long = "shot")]
@@ -141,8 +152,22 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
+    if args.cost_only {
+        let duration: u64 = if args.shots.is_empty() {
+            args.duration_seconds.map(|d| d.get()).unwrap_or(5)
+        } else {
+            parse_shots(&args.shots)?
+                .unwrap_or_default()
+                .iter()
+                .map(|s| s.duration_seconds.get())
+                .sum()
+        };
+        let quote = super::models::quote_video(ctx, &args.model.to_string(), duration).await?;
+        println!("{quote}");
+        return Ok(());
+    }
     let image_url = match args.input.as_ref() {
-        Some(path) => Some(upload_input_image(path, ctx).await?),
+        Some(input) => Some(resolve_input_image(input, ctx).await?),
         None => None,
     };
     let negative_prompt = args
@@ -263,6 +288,25 @@ fn parse_shots(raw: &[String]) -> Result<Option<Vec<VideoShot>>> {
         );
     }
     Ok(Some(shots))
+}
+
+/// --input accepts an asset UUID (reuse with a fresh signed URL) or a
+/// local file path (uploaded to /assets).
+async fn resolve_input_image(input: &str, ctx: &CommandContext) -> Result<String> {
+    if !Path::new(input).exists()
+        && let Ok(id) = uuid::Uuid::parse_str(input)
+    {
+        let asset = ctx
+            .client()
+            .get_asset()
+            .id(id)
+            .send()
+            .await
+            .with_context(|| format!("fetching asset {id}"))?
+            .into_inner();
+        return Ok(asset.signed_url);
+    }
+    upload_input_image(&PathBuf::from(input), ctx).await
 }
 
 async fn upload_input_image(path: &PathBuf, ctx: &CommandContext) -> Result<String> {
