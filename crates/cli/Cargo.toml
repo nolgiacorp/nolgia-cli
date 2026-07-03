@@ -2,10 +2,6 @@
 name = "nolgia-cli"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
-repository.workspace = true
-description = "CLI for the Nolgia generative media platform (image, audio, video)"
-readme = "../../README.md"
 
 [[bin]]
 name = "nolgia"
