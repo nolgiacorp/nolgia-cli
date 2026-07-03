@@ -56,7 +56,7 @@ pub struct VideoArgs {
     /// e.g. 16:9, 9:16, 1:1, 4:3, 3:4 (model-dependent)
     #[arg(long)]
     pub aspect_ratio: Option<AspectRatio>,
-    /// Clip length in seconds (model-dependent; Kling/Seedance 3-15, Veo 4/6/8)
+    /// Clip length in seconds (model-dependent; Kling/Seedance 3-15, Veo 4/6/8, Omni Flash 3-10)
     #[arg(long)]
     pub duration_seconds: Option<std::num::NonZeroU64>,
     #[arg(long)]
