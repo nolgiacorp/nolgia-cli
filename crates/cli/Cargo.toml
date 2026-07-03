@@ -16,6 +16,7 @@ anyhow.workspace = true
 base64.workspace = true
 async-trait.workspace = true
 clap.workspace = true
+clap_complete.workspace = true
 chrono.workspace = true
 directories.workspace = true
 keyring.workspace = true

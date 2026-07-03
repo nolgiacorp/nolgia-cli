@@ -26,6 +26,8 @@ pub enum AuthCommand {
     Logout,
     Status,
     Whoami,
+    /// Print the current bearer token (for scripts and agents)
+    Token,
 }
 
 #[derive(Clone)]
@@ -446,6 +448,12 @@ pub async fn run(
 ) -> Result<()> {
     let manager = AuthManager::new(base_url, KeyringTokenStore);
     match command {
+        AuthCommand::Token => {
+            let resolved = token.or_else(load_token)
+                .ok_or_else(|| anyhow::anyhow!("not logged in — run `nolgia auth login` or set NOLGIA_TOKEN"))?;
+            println!("{resolved}");
+            Ok(())
+        }
         AuthCommand::Login => emit_login(format, &manager.login().await?),
         AuthCommand::Logout => {
             manager.logout()?;

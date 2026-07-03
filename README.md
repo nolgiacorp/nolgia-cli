@@ -5,7 +5,7 @@
 [![Downloads](https://img.shields.io/crates/d/nolgia-cli)](https://crates.io/crates/nolgia-cli)
 [![License](https://img.shields.io/crates/l/nolgia-cli)](#license)
 
-Command-line client for the [Nolgia](https://nolgia.ai) generative media platform — image, audio, and video generation from your terminal, scripts, and agents.
+Command-line client for the [Nolgia](https://nolgia.ai) generative media platform — Seedance v2 Pro, Kling v3, Veo 3.1, FLUX Pro, ElevenLabs and more, from your terminal, scripts, and AI agents. Multi-shot video sequences, image-to-video with reusable references, native audio tracks, credit estimates before you spend, and bundled agent skills.
 
 ```console
 $ nolgia gen image --prompt "A serene mountain lake at dawn" --out lake.png
@@ -14,6 +14,10 @@ $ nolgia gen video --prompt "A drone shot over a coastline" --no-wait
 ```
 
 > A [Nolgia account](https://nolgia.ai) with an active subscription or prepaid API credits is required.
+
+## Contents
+
+- [Installation](#installation) · [Quick start](#quick-start) · [Examples](#examples) · [Models](#models) · [AI agents & skills](#ai-agents--skills) · [Authentication](#authentication) · [Credits](#credits) · [Command reference](#command-reference) · [Global flags and environment](#global-flags-and-environment) · [Shell completions](#shell-completions) · [Development](#development)
 
 ## Installation
 
@@ -43,9 +47,89 @@ Download the binary for your platform from the [latest release](https://github.c
 ```bash
 nolgia auth login                                  # device-code sign-in via your browser
 nolgia gen image --prompt "watercolor fox" --out fox.png
-nolgia assets list --limit 5
+nolgia models list                                 # live catalog: models, pricing, capabilities
 nolgia billing credits                             # see what you have left
 ```
+
+## Examples
+
+### Multi-shot cinematic sequence (Seedance v2 Pro, native audio)
+
+The clip is one generation; the model cuts between your shots. `--prompt` sets overall style, each `--shot` is `"SECONDS:PROMPT"` with an optional `|AUDIO DIRECTION`:
+
+```bash
+nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
+  --prompt "Gritty 35mm film look, overcast light." --generate-audio true \
+  --shot "8:WIDE SHOT. Rural highway, one car heading south.|engine, wind, distant birds" \
+  --shot "4:MCU. The driver glances at the dead radio.|AM static cuts out" \
+  --out highway.mp4
+```
+
+### Image-to-video with a reusable reference
+
+`--input` takes a local file (uploaded automatically) **or the UUID of any previous asset** — generate a character portrait once, reuse it across every clip:
+
+```bash
+nolgia gen image --prompt "portrait, wire-rim glasses, olive field jacket" --out maya.png
+nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
+  --input maya.png --prompt "she turns toward the camera and smiles" --out shot1.mp4
+nolgia assets list --modality image --limit 1      # grab the portrait's asset id
+nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
+  --input <asset-uuid> --prompt "she walks out of frame" --out shot2.mp4
+```
+
+### Know the cost before you spend
+
+```bash
+$ nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
+    --duration-seconds 12 --prompt "..." --cost-only
+365 credits (fal-ai/bytedance/seedance/v2/pro/text-to-video, 12s)
+```
+
+### Hero-quality shot (Veo 3.1)
+
+```bash
+nolgia gen video --model veo-3.1 --duration-seconds 8 --aspect-ratio 16:9 \
+  --prompt "slow cinematic dolly through a warmly lit design studio" --out hero.mp4
+```
+
+### Works with your tools
+
+```bash
+# newest finished video assets, URLs only
+nolgia assets list --modality video --json | jq -r '.items[].signed_url'
+
+# fire-and-poll from a script
+id=$(nolgia gen video --prompt "..." --no-wait --json | jq -r .job_id)
+nolgia wait "$id" --timeout 600 --json | jq .asset.signed_url
+```
+
+## Models
+
+The server is the source of truth — new models appear in the catalog with no CLI update:
+
+```bash
+nolgia models list                 # id, modality, credit pricing, durations, aspect ratios
+nolgia models list --modality video
+nolgia models get fal-ai/bytedance/seedance/v2/pro/text-to-video
+```
+
+Current video lineup: **Kling v3** (standard/master/pro, 3–15s, the workhorse), **Seedance v2 Pro** (4–15s, multi-shot + native audio, cinematic), **Veo 3.1 / 3.1-fast** (4/6/8s, hero quality / fast previz) — each with an image-to-video variant (except Veo). Defaults: `flux-pro` (image), `fal-ai/stable-audio-25/text-to-audio` (audio), `fal-ai/kling-video/v3/text-to-video` (video).
+
+## AI agents & skills
+
+The CLI ships **agent skills** — SKILL.md packs that teach Claude Code, hermes, Cursor, or any agent how to generate on Nolgia well:
+
+```bash
+nolgia skills list
+nolgia skills install                          # → ~/.claude/skills/  (Claude Code)
+nolgia skills install --target claude-project  # → ./.claude/skills/
+nolgia skills install --target hermes          # → $HERMES_HOME/skills/
+```
+
+Bundled: `nolgia-platform` (the full tool surface), `nolgia-video-prompting` (shot grammar, multi-shot directing, consistency), `nolgia-ugc-ads` (vertical ad production recipe).
+
+Also for agents: an **MCP server** at `https://mcp.nolgia.ai` (tools `nolgia_text_to_video`, `nolgia_text_to_image`, …, same params as the CLI flags), **PATs** for headless auth, `nolgia auth token` to extract the current bearer, and `--json` everywhere. The CLI identifies its calling surface (`X-Nolgia-Surface`: `claude-code`, `codex`, `hermes`, `cli`; override with `NOLGIA_SURFACE`) so agent traffic is first-class, not an afterthought.
 
 ## Authentication
 
@@ -76,26 +160,24 @@ Generation costs credits, drawn from one of two pools depending on how you authe
 | Subscription credits | your monthly/yearly plan | device-login sessions (and the web app) |
 | API credits | prepaid top-ups (never expire) | PAT-authenticated requests |
 
-If the applicable pool can't cover a generation the API returns `402 Payment Required`. Check balances with `nolgia billing credits`; buy top-ups and manage your plan from the [billing dashboard](https://nolgia.ai/billing) (`nolgia billing portal` deep-links there).
+If the applicable pool can't cover a generation the API returns `402 Payment Required`. Check balances with `nolgia billing credits`, estimate video jobs with `--cost-only`; buy top-ups and manage your plan from the [billing dashboard](https://nolgia.ai/billing) (`nolgia billing portal` deep-links there).
 
 ## Command reference
 
 | Command | Description |
 |---|---|
-| `nolgia auth login` / `status` / `logout` | Device-code sign-in, current identity + tier, sign out |
+| `nolgia auth login` / `status` / `logout` / `token` | Device-code sign-in, current identity + tier, sign out, print bearer |
 | `nolgia gen image --prompt <p> [--model <m>] [--out <file>]` | Generate an image (waits; prints signed URL or saves) |
-| `nolgia gen audio --prompt <p>` | Generate audio |
-| `nolgia gen video --prompt <p> [--no-wait] [--input <img>]` | Generate video (async; `--input` for image-to-video) |
-| `nolgia status <job-id>` | Current status of a job |
-| `nolgia wait <job-id> [--timeout <s>]` | Block until a job finishes (default 300s) |
-| `nolgia assets list [--limit N] [--modality m]` | List generated assets |
-| `nolgia assets get <id> [--out <file>]` | Asset metadata, or download with `--out` |
-| `nolgia assets delete <id>` | Delete an asset |
+| `nolgia gen audio --prompt <p>` | Generate audio (TTS, music, SFX) |
+| `nolgia gen video --prompt <p> [--shot "S:P\|A"]... [--input <file\|uuid>] [--duration-seconds N] [--aspect-ratio R] [--generate-audio true] [--seed N] [--negative-prompt <p>] [--cost-only] [--no-wait]` | Generate video: multi-shot, image-to-video, native audio, cost estimate |
+| `nolgia models list [--modality m]` / `get <id>` | Live model catalog with pricing and capabilities |
+| `nolgia status <job-id>` / `wait <job-id> [--timeout <s>]` | Job status; block until finished |
+| `nolgia assets list [--limit N] [--modality m]` / `get <id> [--out <file>]` / `delete <id>` | List, inspect/download, delete assets |
+| `nolgia skills list` / `show <name>` / `install [--target t]` | Bundled AI-agent skills |
 | `nolgia account me` / `usage` | Identity; job and asset counts |
 | `nolgia billing subscription` / `credits` / `portal` | Plan status, credit pools, Stripe portal link |
 | `nolgia pat create --name <n>` / `list` / `revoke <id>` | Manage personal access tokens |
-
-Model selection is via `--model`; defaults are `flux-pro` (image), `fal-ai/stable-audio-25/text-to-audio` (audio), and `fal-ai/kling-video/v3/text-to-video` (video).
+| `nolgia completion <shell>` | Shell completions (bash, zsh, fish, powershell) |
 
 ## Global flags and environment
 
@@ -104,6 +186,14 @@ Model selection is via `--model`; defaults are `flux-pro` (image), `fal-ai/stabl
 | `--api-url` | `NOLGIA_API_URL` | `https://api.nolgia.ai` | API base URL (the client appends `/v1`) |
 | `--token` | `NOLGIA_TOKEN` | keyring | Bearer token (PAT or JWT); overrides the stored login |
 | `--json` | — | off | Machine-readable output for scripting |
+| — | `NOLGIA_SURFACE` | auto-detected | Calling-surface tag sent as `X-Nolgia-Surface` |
+
+## Shell completions
+
+```bash
+# zsh (analogous for bash/fish/powershell)
+nolgia completion zsh > "${fpath[1]}/_nolgia" && exec zsh
+```
 
 ## Development
 

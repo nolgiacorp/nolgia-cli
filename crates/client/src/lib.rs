@@ -16,6 +16,7 @@ pub use generated::{Client, Error as ApiError, ResponseValue, types};
 pub struct ClientBuilder {
     base_url: String,
     auth_token: Option<String>,
+    surface: Option<String>,
 }
 
 #[derive(Debug)]
@@ -59,6 +60,7 @@ impl ClientBuilder {
         Self {
             base_url: base_url.into(),
             auth_token: None,
+            surface: None,
         }
     }
 
@@ -72,12 +74,26 @@ impl ClientBuilder {
         self
     }
 
+    /// Identify the calling surface ("cli", "claude-code", "codex", ...) —
+    /// sent as X-Nolgia-Surface so the platform can understand agent-driven
+    /// usage.
+    pub fn surface(mut self, surface: impl Into<String>) -> Self {
+        self.surface = Some(surface.into());
+        self
+    }
+
     pub fn build(self) -> StdResult<Client, ClientBuilderError> {
         let mut headers = HeaderMap::new();
 
         if let Some(token) = self.auth_token {
             let value = HeaderValue::from_str(&format!("Bearer {token}"))?;
             headers.insert(AUTHORIZATION, value);
+        }
+
+        if let Some(surface) = self.surface
+            && let Ok(value) = HeaderValue::from_str(&surface)
+        {
+            headers.insert("x-nolgia-surface", value);
         }
 
         let http_client = reqwest::Client::builder()
