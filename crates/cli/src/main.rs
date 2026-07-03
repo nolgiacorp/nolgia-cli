@@ -4,7 +4,7 @@ mod output;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use commands::{CommandContext, account, assets, billing, r#gen, pat, status, wait};
+use commands::{CommandContext, account, assets, billing, r#gen, pat, skills, status, wait};
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
 
@@ -46,6 +46,8 @@ pub enum Commands {
     Billing(billing::BillingCommand),
     #[command(subcommand, about = "Manage personal access tokens")]
     Pat(pat::PatCommand),
+    #[command(subcommand, about = "Bundled AI-agent skills (list, show, install)")]
+    Skills(skills::SkillsCommand),
 }
 
 #[tokio::main]
@@ -58,6 +60,9 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
     let format = OutputFormat::from_json_flag(cli.json);
     if let Commands::Auth(command) = cli.command {
         return auth::run(command, format, &cli.api_url, cli.token).await;
+    }
+    if let Commands::Skills(command) = cli.command {
+        return skills::run(command, format);
     }
 
     let token = cli.token.or_else(auth::load_token).unwrap_or_default();
@@ -73,6 +78,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Account(command) => account::run(command, &ctx).await,
         Commands::Billing(command) => billing::run(command, &ctx).await,
         Commands::Pat(command) => pat::run(command, &ctx).await,
+        Commands::Skills(_) => unreachable!("skills handled before client construction"),
     }
 }
 
