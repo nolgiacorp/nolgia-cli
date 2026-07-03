@@ -3,6 +3,7 @@ pub mod assets;
 pub mod billing;
 pub mod r#gen;
 pub mod pat;
+pub mod skills;
 pub mod status;
 pub mod wait;
 
