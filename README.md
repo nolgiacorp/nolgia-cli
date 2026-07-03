@@ -4,13 +4,20 @@ Rust CLI for the Nolgia generation platform.
 
 ## Installation
 
-You can install the CLI directly using Cargo:
+Homebrew (macOS/Linux):
+
+```bash
+brew tap nolgiacorp/nolgia
+brew install nolgia
+```
+
+Cargo:
 
 ```bash
 cargo install nolgia-cli
 ```
 
-Alternatively, download the latest binary from the [GitHub Releases](https://github.com/nolgiacorp/nolgia-cli/releases) page. The binary is named `nolgia`.
+Or download a prebuilt binary from the [GitHub Releases](https://github.com/nolgiacorp/nolgia-cli/releases) page. The binary is named `nolgia`.
 
 ## Authentication
 
