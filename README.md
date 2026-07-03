@@ -21,6 +21,22 @@ $ nolgia gen video --prompt "A drone shot over a coastline" --no-wait
 
 ## Installation
 
+### Shell installer (macOS, Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nolgiacorp/nolgia-cli/main/install.sh | bash
+```
+
+The installer picks /usr/local/bin when writable and ~/.local/bin otherwise; pass `--prefix <dir>` to choose and `--tag vX.Y.Z` to pin a release. On macOS it clears the quarantine attribute for you
+
+### npm
+
+```bash
+npm install -g @nolgia/cli
+```
+
+The package downloads the prebuilt binary for your platform (macOS universal, Linux x86_64, Windows x86_64) during postinstall
+
 ### Homebrew (macOS, Linux)
 
 ```bash
@@ -41,6 +57,10 @@ Building from source requires the Rust 2024 toolchain; on Linux you also need `l
 ### Prebuilt binaries
 
 Download the binary for your platform from the [latest release](https://github.com/nolgiacorp/nolgia-cli/releases/latest) (macOS universal, Linux x86_64, Windows x86_64), rename it to `nolgia` (`nolgia.exe` on Windows), and place it on your `PATH`.
+
+### Update check
+
+The CLI checks GitHub for a newer release at most once a day and prints a one-line upgrade hint on stderr, matched to how you installed it. It never delays commands, stays quiet for `--json`, piped output, CI, and agent traffic, and can be disabled entirely with `NOLGIA_NO_UPDATE_CHECK=1`
 
 ## Quick start
 

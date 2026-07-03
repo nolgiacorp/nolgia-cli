@@ -1,0 +1,30 @@
+{
+  "name": "@nolgia/cli",
+  "version": "0.2.1",
+  "description": "Nolgia CLI: generate images, video, and audio on the Nolgia platform",
+  "bin": {
+    "nolgia": "bin/nolgia.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nolgiacorp/nolgia-cli.git"
+  },
+  "homepage": "https://github.com/nolgiacorp/nolgia-cli#readme",
+  "license": "MIT",
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

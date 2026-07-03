@@ -1,6 +1,7 @@
 mod auth;
 mod commands;
 mod output;
+mod update_check;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -87,7 +88,10 @@ fn detect_surface() -> String {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
-    run_cli(cli).await
+    let update = update_check::start(cli.json);
+    let result = run_cli(cli).await;
+    update.finish().await;
+    result
 }
 
 pub async fn run_cli(cli: Cli) -> Result<()> {

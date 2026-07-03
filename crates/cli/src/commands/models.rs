@@ -102,7 +102,9 @@ fn capability_line(model: &Model) -> String {
         } else {
             ""
         };
-        return format!("{durations}  {ratios}{image_input}").trim().to_string();
+        return format!("{durations}  {ratios}{image_input}")
+            .trim()
+            .to_string();
     }
     if let Some(audio) = &model.audio
         && !audio.voices.is_empty()
