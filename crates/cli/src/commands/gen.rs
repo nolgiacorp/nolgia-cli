@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use nolgia_client::types::{
-    AudioFormat, AudioModel, GenerateAudioRequest, GenerateImageRequest, GenerateVideoRequest,
-    ImageModel, VideoModel,
+    AspectRatio, AudioFormat, AudioModel, GenerateAudioRequest, GenerateImageRequest,
+    GenerateVideoRequest, GenerateVideoRequestNegativePrompt, ImageModel, UploadAssetRequest,
+    UploadAssetRequestContentType, UploadAssetRequestFilename, VideoModel, VideoShot,
 };
 use serde::Serialize;
 use std::{fs, path::PathBuf};
@@ -40,10 +41,28 @@ pub struct VideoArgs {
     pub model: VideoModel,
     #[arg(long)]
     pub prompt: String,
+    /// Start image for image-to-video models; uploaded to /assets first.
     #[arg(long)]
     pub input: Option<PathBuf>,
     #[arg(long)]
     pub out: Option<PathBuf>,
+    /// e.g. 16:9, 9:16, 1:1, 4:3, 3:4 (model-dependent)
+    #[arg(long)]
+    pub aspect_ratio: Option<AspectRatio>,
+    /// Clip length in seconds (model-dependent; Kling/Seedance 3-15, Veo 4/6/8)
+    #[arg(long)]
+    pub duration_seconds: Option<std::num::NonZeroU64>,
+    #[arg(long)]
+    pub seed: Option<u64>,
+    #[arg(long)]
+    pub negative_prompt: Option<String>,
+    /// Generate a synchronized audio track (Seedance/Veo)
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub generate_audio: Option<bool>,
+    /// Multi-shot segment "SECONDS:PROMPT" or "SECONDS:PROMPT|AUDIO DIRECTION".
+    /// Repeat up to 8 times; clip duration = sum, --prompt becomes style/context.
+    #[arg(long = "shot")]
+    pub shots: Vec<String>,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -122,11 +141,29 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
-    let body: GenerateVideoRequest = GenerateVideoRequest::builder()
+    let image_url = match args.input.as_ref() {
+        Some(path) => Some(upload_input_image(path, ctx).await?),
+        None => None,
+    };
+    let negative_prompt = args
+        .negative_prompt
+        .map(GenerateVideoRequestNegativePrompt::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--negative-prompt: {e}"))?;
+    let shots = parse_shots(&args.shots)?;
+    let mut builder = GenerateVideoRequest::builder()
         .model(args.model)
         .prompt(args.prompt)
-        .try_into()
-        .context("building video request")?;
+        .negative_prompt(negative_prompt)
+        .image_url(image_url)
+        .aspect_ratio(args.aspect_ratio)
+        .seed(args.seed)
+        .generate_audio(args.generate_audio)
+        .shots(shots);
+    if let Some(duration) = args.duration_seconds {
+        builder = builder.duration_seconds(duration);
+    }
+    let body: GenerateVideoRequest = builder.try_into().context("building video request")?;
     let mut job = ctx
         .client()
         .generate_video()
@@ -188,6 +225,84 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn parse_shots(raw: &[String]) -> Result<Option<Vec<VideoShot>>> {
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    let mut shots = Vec::with_capacity(raw.len());
+    for (i, spec) in raw.iter().enumerate() {
+        let (secs, rest) = spec.split_once(':').with_context(|| {
+            format!(
+                "--shot #{}: expected \"SECONDS:PROMPT\", got {spec:?}",
+                i + 1
+            )
+        })?;
+        let duration_seconds: std::num::NonZeroU64 = secs.trim().parse().with_context(|| {
+            format!(
+                "--shot #{}: {secs:?} is not a positive number of seconds",
+                i + 1
+            )
+        })?;
+        let (prompt, audio) = match rest.split_once('|') {
+            Some((p, a)) => (p.trim(), Some(a.trim())),
+            None => (rest.trim(), None),
+        };
+        let mut shot = VideoShot::builder()
+            .prompt(prompt)
+            .duration_seconds(duration_seconds);
+        if let Some(a) = audio {
+            let audio_direction = nolgia_client::types::VideoShotAudio::try_from(a)
+                .map_err(|e| anyhow::anyhow!("--shot #{} audio: {e}", i + 1))?;
+            shot = shot.audio(Some(audio_direction));
+        }
+        shots.push(
+            shot.try_into()
+                .with_context(|| format!("--shot #{}", i + 1))?,
+        );
+    }
+    Ok(Some(shots))
+}
+
+async fn upload_input_image(path: &PathBuf, ctx: &CommandContext) -> Result<String> {
+    use base64::Engine as _;
+    let content_type = match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png") => UploadAssetRequestContentType::ImagePng,
+        Some("jpg") | Some("jpeg") => UploadAssetRequestContentType::ImageJpeg,
+        Some("webp") => UploadAssetRequestContentType::ImageWebp,
+        other => anyhow::bail!(
+            "unsupported --input extension {:?} (png/jpeg/webp only)",
+            other
+        ),
+    };
+    let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let body: UploadAssetRequest = UploadAssetRequest::builder()
+        .content_type(content_type)
+        .data(base64::engine::general_purpose::STANDARD.encode(bytes))
+        .filename(
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .map(UploadAssetRequestFilename::try_from)
+                .transpose()
+                .map_err(|e| anyhow::anyhow!("--input filename: {e}"))?,
+        )
+        .try_into()
+        .context("building asset upload")?;
+    let asset = ctx
+        .client()
+        .upload_asset()
+        .body(body)
+        .send()
+        .await
+        .context("uploading --input image")?
+        .into_inner();
+    Ok(asset.signed_url)
 }
 
 async fn wait_for_asset(
