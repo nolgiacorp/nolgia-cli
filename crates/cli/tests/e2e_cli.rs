@@ -12,7 +12,7 @@
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::fs;
 use tempfile::TempDir;
 use uuid::Uuid;

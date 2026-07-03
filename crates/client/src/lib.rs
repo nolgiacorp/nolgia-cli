@@ -10,7 +10,7 @@ use std::{fmt, result::Result as StdResult};
 
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 
-pub use generated::{types, Client, Error as ApiError, ResponseValue};
+pub use generated::{Client, Error as ApiError, ResponseValue, types};
 
 #[derive(Debug, Clone)]
 pub struct ClientBuilder {
@@ -84,7 +84,10 @@ impl ClientBuilder {
             .default_headers(headers)
             .build()?;
 
-        Ok(Client::new_with_client(&normalize_base_url(&self.base_url), http_client))
+        Ok(Client::new_with_client(
+            &normalize_base_url(&self.base_url),
+            http_client,
+        ))
     }
 }
 

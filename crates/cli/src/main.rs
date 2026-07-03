@@ -4,14 +4,19 @@ mod output;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use commands::{account, assets, billing, r#gen, status, wait, CommandContext};
+use commands::{CommandContext, account, assets, billing, r#gen, status, wait};
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
 
 const DEFAULT_BASE_URL: &str = "https://api.nolgia.ai";
 
 #[derive(Parser, Debug)]
-#[command(name = "nolgia", version, about = "Nolgia CLI", propagate_version = true)]
+#[command(
+    name = "nolgia",
+    version,
+    about = "Nolgia CLI",
+    propagate_version = true
+)]
 pub struct Cli {
     #[arg(long, global = true, help = "Emit machine-readable JSON")]
     pub json: bool,
@@ -70,6 +75,10 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
 
 fn build_client(base_url: &str, token: String) -> Result<Client> {
     let builder = ClientBuilder::new(base_url);
-    let builder = if token.is_empty() { builder } else { builder.pat(token) };
+    let builder = if token.is_empty() {
+        builder
+    } else {
+        builder.pat(token)
+    };
     Ok(builder.build()?)
 }

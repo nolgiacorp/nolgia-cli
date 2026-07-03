@@ -1,4 +1,9 @@
-use std::{env, error::Error, fs, path::{Path, PathBuf}};
+use std::{
+    env,
+    error::Error,
+    fs,
+    path::{Path, PathBuf},
+};
 
 use openapiv3::OpenAPI;
 use progenitor::{GenerationSettings, Generator, InterfaceStyle};
@@ -31,7 +36,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn load_spec(local_spec: &Path, vendored_spec: &Path, version_file: &Path) -> Result<OpenAPI, Box<dyn Error>> {
+fn load_spec(
+    local_spec: &Path,
+    vendored_spec: &Path,
+    version_file: &Path,
+) -> Result<OpenAPI, Box<dyn Error>> {
     // Prefer the sibling nolgia-api checkout (dev flow), then the vendored
     // snapshot (CI), then the release asset download.
     let raw_text = if local_spec.exists() {
@@ -41,13 +50,20 @@ fn load_spec(local_spec: &Path, vendored_spec: &Path, version_file: &Path) -> Re
     } else if is_release_profile() {
         let version = read_spec_version(version_file)?;
         let url = env::var("NOLGIA_OPENAPI_RELEASE_URL").unwrap_or_else(|_| {
-            format!("https://github.com/nolgiacorp/nolgia-api/releases/download/v{version}/openapi.yaml")
+            format!(
+                "https://github.com/nolgiacorp/nolgia-api/releases/download/v{version}/openapi.yaml"
+            )
         });
         let response = reqwest::blocking::get(url)?;
         let response = response.error_for_status()?;
         response.text()?
     } else {
-        return Err(format!("no OpenAPI spec found at {} or {}", local_spec.display(), vendored_spec.display()).into());
+        return Err(format!(
+            "no OpenAPI spec found at {} or {}",
+            local_spec.display(),
+            vendored_spec.display()
+        )
+        .into());
     };
 
     let mut value: Value = serde_yaml::from_str(&sanitize_openapi_text(&raw_text))?;
@@ -75,8 +91,9 @@ fn sanitize_openapi_text(input: &str) -> String {
     let mut text = input.replace("openapi: 3.1.0", "openapi: 3.0.3");
     text = text.replace("openapi: '3.1.0'", "openapi: 3.0.3");
 
-    let nullable_type = Regex::new(r"(?m)^(?P<indent>\s*)type:\s+\[(?P<ty>[^,\]]+),\s*'null'\]\s*$")
-        .expect("valid regex");
+    let nullable_type =
+        Regex::new(r"(?m)^(?P<indent>\s*)type:\s+\[(?P<ty>[^,\]]+),\s*'null'\]\s*$")
+            .expect("valid regex");
     text = nullable_type
         .replace_all(&text, "$indenttype: $ty\n$indentnullable: true")
         .into_owned();
@@ -108,7 +125,10 @@ fn strip_non_success_responses(value: &mut Value) {
                 continue;
             };
 
-            let Some(responses) = method_map.get_mut(Value::from("responses")).and_then(Value::as_mapping_mut) else {
+            let Some(responses) = method_map
+                .get_mut(Value::from("responses"))
+                .and_then(Value::as_mapping_mut)
+            else {
                 continue;
             };
 

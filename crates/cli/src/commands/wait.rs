@@ -3,7 +3,7 @@ use clap::Args;
 use std::num::NonZeroU64;
 use uuid::Uuid;
 
-use crate::output::{print_json, OutputFormat};
+use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
 

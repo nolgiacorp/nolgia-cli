@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time::Instant;
 
-use crate::output::{print_json, OutputFormat};
+use crate::output::{OutputFormat, print_json};
 
 pub const SERVICE_NAME: &str = "com.nolgiacorp.nolgia";
 pub const ACCESS_TOKEN_ACCOUNT: &str = "access_token";
@@ -44,9 +44,11 @@ impl<S: TokenStore> AuthManager<S> {
             http: Client::new(),
             store,
             sleep: Arc::new(|duration| Box::pin(tokio::time::sleep(duration))),
-            cancel: Arc::new(|| Box::pin(async {
-                let _ = tokio::signal::ctrl_c().await;
-            })),
+            cancel: Arc::new(|| {
+                Box::pin(async {
+                    let _ = tokio::signal::ctrl_c().await;
+                })
+            }),
         }
     }
 
@@ -70,10 +72,19 @@ impl<S: TokenStore> AuthManager<S> {
         Ok(LoginOutcome { prompt, tokens })
     }
 
-    pub async fn status_with_token(&self, access_token: &str) -> std::result::Result<AuthStatus, AuthError> {
+    pub async fn status_with_token(
+        &self,
+        access_token: &str,
+    ) -> std::result::Result<AuthStatus, AuthError> {
         let user = self.fetch_user(access_token).await?;
-        let tier = self.fetch_subscription_tier(access_token).await.unwrap_or_else(|_| "unknown".to_string());
-        let status = AuthStatus { email: user.email, tier };
+        let tier = self
+            .fetch_subscription_tier(access_token)
+            .await
+            .unwrap_or_else(|_| "unknown".to_string());
+        let status = AuthStatus {
+            email: user.email,
+            tier,
+        };
         println!("{} ({})", status.email, status.tier);
         Ok(status)
     }
@@ -94,12 +105,16 @@ impl<S: TokenStore> AuthManager<S> {
             Ok(tier) => tier,
             Err(AuthError::Unauthorized) => {
                 let refreshed = self.refresh_tokens(&tokens).await?;
-                self.fetch_subscription_tier(&refreshed.access_token).await?
+                self.fetch_subscription_tier(&refreshed.access_token)
+                    .await?
             }
             Err(_) => "unknown".to_string(),
         };
 
-        let status = AuthStatus { email: user.email, tier };
+        let status = AuthStatus {
+            email: user.email,
+            tier,
+        };
         println!("{} ({})", status.email, status.tier);
         Ok(status)
     }
@@ -117,17 +132,27 @@ impl<S: TokenStore> AuthManager<S> {
         }
     }
 
-    pub async fn refresh_tokens(&self, tokens: &StoredTokens) -> std::result::Result<StoredTokens, AuthError> {
-        let refresh_token = tokens.refresh_token.as_deref().ok_or(AuthError::MissingRefreshToken)?;
+    pub async fn refresh_tokens(
+        &self,
+        tokens: &StoredTokens,
+    ) -> std::result::Result<StoredTokens, AuthError> {
+        let refresh_token = tokens
+            .refresh_token
+            .as_deref()
+            .ok_or(AuthError::MissingRefreshToken)?;
         let response = self
             .http
             .post(format!("{}/auth/device/token", self.base_url))
-            .json(&DeviceTokenRequest { client_id: CLIENT_ID, device_code: refresh_token })
+            .json(&DeviceTokenRequest {
+                client_id: CLIENT_ID,
+                device_code: refresh_token,
+            })
             .send()
             .await?
             .error_for_status()?;
         let token = response.json::<DeviceTokenResponse>().await?;
-        let refreshed = StoredTokens::from_token_response_with_refresh(token, Some(refresh_token.to_string()));
+        let refreshed =
+            StoredTokens::from_token_response_with_refresh(token, Some(refresh_token.to_string()));
         self.store.save(&refreshed)?;
         Ok(refreshed)
     }
@@ -136,14 +161,20 @@ impl<S: TokenStore> AuthManager<S> {
         let response = self
             .http
             .post(format!("{}/auth/device", self.base_url))
-            .json(&DeviceAuthRequest { client_id: CLIENT_ID, scope: Some(DEFAULT_SCOPE) })
+            .json(&DeviceAuthRequest {
+                client_id: CLIENT_ID,
+                scope: Some(DEFAULT_SCOPE),
+            })
             .send()
             .await?
             .error_for_status()?;
         Ok(response.json().await?)
     }
 
-    async fn poll_device_token(&self, device: &DeviceAuthResponse) -> std::result::Result<DeviceTokenResponse, AuthError> {
+    async fn poll_device_token(
+        &self,
+        device: &DeviceAuthResponse,
+    ) -> std::result::Result<DeviceTokenResponse, AuthError> {
         let deadline = Instant::now() + Duration::from_secs(device.expires_in);
         let mut interval = Duration::from_secs(device.interval);
 
@@ -160,14 +191,22 @@ impl<S: TokenStore> AuthManager<S> {
             let response = self
                 .http
                 .post(format!("{}/auth/device/token", self.base_url))
-                .json(&DeviceTokenRequest { client_id: CLIENT_ID, device_code: device.device_code.as_str() })
+                .json(&DeviceTokenRequest {
+                    client_id: CLIENT_ID,
+                    device_code: device.device_code.as_str(),
+                })
                 .send()
                 .await?;
 
             match response.status() {
                 StatusCode::OK => return Ok(response.json().await?),
                 StatusCode::FORBIDDEN => continue,
-                StatusCode::BAD_REQUEST => match response.json::<Problem>().await.ok().and_then(|p| p.error.or(p.kind)) {
+                StatusCode::BAD_REQUEST => match response
+                    .json::<Problem>()
+                    .await
+                    .ok()
+                    .and_then(|p| p.error.or(p.kind))
+                {
                     Some(error) if error == "authorization_pending" => continue,
                     Some(error) if error == "slow_down" => {
                         interval += Duration::from_secs(5);
@@ -194,7 +233,10 @@ impl<S: TokenStore> AuthManager<S> {
         Ok(response.error_for_status()?.json().await?)
     }
 
-    async fn fetch_subscription_tier(&self, access_token: &str) -> std::result::Result<String, AuthError> {
+    async fn fetch_subscription_tier(
+        &self,
+        access_token: &str,
+    ) -> std::result::Result<String, AuthError> {
         let response = self
             .http
             .get(format!("{}/billing/subscription", self.base_url))
@@ -204,7 +246,11 @@ impl<S: TokenStore> AuthManager<S> {
         if response.status() == StatusCode::UNAUTHORIZED {
             return Err(AuthError::Unauthorized);
         }
-        Ok(response.error_for_status()?.json::<Subscription>().await?.tier)
+        Ok(response
+            .error_for_status()?
+            .json::<Subscription>()
+            .await?
+            .tier)
     }
 }
 
@@ -265,11 +311,17 @@ pub struct StoredTokens {
 
 impl StoredTokens {
     fn from_token_response(response: DeviceTokenResponse) -> Self {
-        let refresh_token = response.refresh_token.clone().or_else(|| Some(response.access_token.clone()));
+        let refresh_token = response
+            .refresh_token
+            .clone()
+            .or_else(|| Some(response.access_token.clone()));
         Self::from_token_response_with_refresh(response, refresh_token)
     }
 
-    fn from_token_response_with_refresh(response: DeviceTokenResponse, refresh_token: Option<String>) -> Self {
+    fn from_token_response_with_refresh(
+        response: DeviceTokenResponse,
+        refresh_token: Option<String>,
+    ) -> Self {
         Self {
             access_token: response.access_token,
             refresh_token,
@@ -383,7 +435,12 @@ struct Problem {
     error: Option<String>,
 }
 
-pub async fn run(command: AuthCommand, format: OutputFormat, base_url: &str, token: Option<String>) -> Result<()> {
+pub async fn run(
+    command: AuthCommand,
+    format: OutputFormat,
+    base_url: &str,
+    token: Option<String>,
+) -> Result<()> {
     let manager = AuthManager::new(base_url, KeyringTokenStore);
     match command {
         AuthCommand::Login => emit_login(format, &manager.login().await?),
@@ -391,15 +448,21 @@ pub async fn run(command: AuthCommand, format: OutputFormat, base_url: &str, tok
             manager.logout()?;
             emit_message(format, "logged out")
         }
-        AuthCommand::Status | AuthCommand::Whoami => match token.filter(|token| !token.is_empty()) {
-            Some(token) => emit_status(format, &manager.status_with_token(&token).await?),
-            None => emit_status(format, &manager.status().await?),
-        },
+        AuthCommand::Status | AuthCommand::Whoami => {
+            match token.filter(|token| !token.is_empty()) {
+                Some(token) => emit_status(format, &manager.status_with_token(&token).await?),
+                None => emit_status(format, &manager.status().await?),
+            }
+        }
     }
 }
 
 pub fn load_token() -> Option<String> {
-    KeyringTokenStore.load().ok().flatten().map(|tokens| tokens.access_token)
+    KeyringTokenStore
+        .load()
+        .ok()
+        .flatten()
+        .map(|tokens| tokens.access_token)
 }
 
 fn emit_login(format: OutputFormat, outcome: &LoginOutcome) -> Result<()> {
@@ -462,12 +525,18 @@ fn delete_entry(account: &str) -> std::result::Result<(), AuthError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{collections::HashMap, sync::{Arc, Mutex}};
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex},
+    };
 
     use chrono::Duration as ChronoDuration;
     use serde_json::json;
     use tokio::sync::Notify;
-    use wiremock::{matchers::{body_json, header, method, path}, Mock, MockServer, ResponseTemplate};
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{body_json, header, method, path},
+    };
 
     #[derive(Clone, Default)]
     struct MemoryStore {
@@ -477,7 +546,10 @@ mod tests {
 
     impl MemoryStore {
         fn with(tokens: StoredTokens) -> Self {
-            Self { tokens: Arc::new(Mutex::new(Some(tokens))), deletes: Arc::default() }
+            Self {
+                tokens: Arc::new(Mutex::new(Some(tokens))),
+                deletes: Arc::default(),
+            }
         }
 
         fn saved(&self) -> Option<StoredTokens> {
@@ -506,7 +578,11 @@ mod tests {
         }
     }
 
-    fn token(access_token: &str, refresh_token: Option<&str>, expires_at: DateTime<Utc>) -> StoredTokens {
+    fn token(
+        access_token: &str,
+        refresh_token: Option<&str>,
+        expires_at: DateTime<Utc>,
+    ) -> StoredTokens {
         StoredTokens {
             access_token: access_token.to_string(),
             refresh_token: refresh_token.map(str::to_string),
@@ -529,7 +605,9 @@ mod tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/auth/device"))
-            .and(body_json(json!({ "client_id": CLIENT_ID, "scope": DEFAULT_SCOPE })))
+            .and(body_json(
+                json!({ "client_id": CLIENT_ID, "scope": DEFAULT_SCOPE }),
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "device_code": "dev-1",
                 "user_code": "ABCD-EFGH",
@@ -543,7 +621,9 @@ mod tests {
             .await;
         Mock::given(method("POST"))
             .and(path("/v1/auth/device/token"))
-            .and(body_json(json!({ "client_id": CLIENT_ID, "device_code": "dev-1" })))
+            .and(body_json(
+                json!({ "client_id": CLIENT_ID, "device_code": "dev-1" }),
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "access_token": "access-1",
                 "refresh_token": "refresh-1",
@@ -557,8 +637,18 @@ mod tests {
         let outcome = auth.login().await.expect("login succeeds");
 
         assert_eq!(outcome.prompt.user_code, "ABCD-EFGH");
-        assert_eq!(store.saved().expect("tokens saved").access_token, "access-1");
-        assert_eq!(store.saved().expect("tokens saved").refresh_token.as_deref(), Some("refresh-1"));
+        assert_eq!(
+            store.saved().expect("tokens saved").access_token,
+            "access-1"
+        );
+        assert_eq!(
+            store
+                .saved()
+                .expect("tokens saved")
+                .refresh_token
+                .as_deref(),
+            Some("refresh-1")
+        );
         server.verify().await;
     }
 
@@ -570,11 +660,19 @@ mod tests {
         mount_device(&server, 900, 1).await;
         Mock::given(method("POST"))
             .and(path("/v1/auth/device/token"))
-            .respond_with(ResponseTemplate::new(403).set_body_json(json!({ "error": "authorization_pending" })))
+            .respond_with(
+                ResponseTemplate::new(403)
+                    .set_body_json(json!({ "error": "authorization_pending" })),
+            )
             .up_to_n_times(1)
             .mount(&server)
             .await;
-        mount_token(&server, "access-after-pending", Some("refresh-after-pending")).await;
+        mount_token(
+            &server,
+            "access-after-pending",
+            Some("refresh-after-pending"),
+        )
+        .await;
 
         let outcome = auth.login().await.expect("login succeeds after pending");
 
@@ -608,7 +706,9 @@ mod tests {
         mount_device(&server, 900, 1).await;
         Mock::given(method("POST"))
             .and(path("/v1/auth/device/token"))
-            .respond_with(ResponseTemplate::new(400).set_body_json(json!({ "error": "expired_token" })))
+            .respond_with(
+                ResponseTemplate::new(400).set_body_json(json!({ "error": "expired_token" })),
+            )
             .mount(&server)
             .await;
 
@@ -635,7 +735,11 @@ mod tests {
     #[tokio::test]
     async fn valid_tokens_refreshes_expired_access_token() {
         let server = MockServer::start().await;
-        let store = MemoryStore::with(token("old", Some("refresh-old"), Utc::now() - ChronoDuration::minutes(1)));
+        let store = MemoryStore::with(token(
+            "old",
+            Some("refresh-old"),
+            Utc::now() - ChronoDuration::minutes(1),
+        ));
         let auth = manager(&server, store.clone());
         mount_refresh(&server, "refresh-old", "new", Some("refresh-new")).await;
 
@@ -651,7 +755,10 @@ mod tests {
         let store = MemoryStore::with(token("old", None, Utc::now() - ChronoDuration::minutes(1)));
         let auth = manager(&server, store);
 
-        let err = auth.valid_tokens().await.expect_err("missing refresh token");
+        let err = auth
+            .valid_tokens()
+            .await
+            .expect_err("missing refresh token");
 
         assert!(matches!(err, AuthError::MissingRefreshToken));
     }
@@ -659,7 +766,11 @@ mod tests {
     #[tokio::test]
     async fn status_prints_email_and_tier_for_valid_token() {
         let server = MockServer::start().await;
-        let store = MemoryStore::with(token("access-ok", Some("refresh-ok"), Utc::now() + ChronoDuration::hours(1)));
+        let store = MemoryStore::with(token(
+            "access-ok",
+            Some("refresh-ok"),
+            Utc::now() + ChronoDuration::hours(1),
+        ));
         let auth = manager(&server, store);
         mount_user(&server, "access-ok", 200).await;
         mount_subscription(&server, "access-ok", 200, "pro").await;
@@ -673,7 +784,11 @@ mod tests {
     #[tokio::test]
     async fn status_refreshes_after_401_then_retries_user_call() {
         let server = MockServer::start().await;
-        let store = MemoryStore::with(token("stale", Some("refresh-stale"), Utc::now() + ChronoDuration::hours(1)));
+        let store = MemoryStore::with(token(
+            "stale",
+            Some("refresh-stale"),
+            Utc::now() + ChronoDuration::hours(1),
+        ));
         let auth = manager(&server, store.clone());
 
         mount_user(&server, "stale", 401).await;
@@ -700,7 +815,11 @@ mod tests {
 
     #[test]
     fn logout_removes_stored_tokens() {
-        let store = MemoryStore::with(token("access", Some("refresh"), Utc::now() + ChronoDuration::hours(1)));
+        let store = MemoryStore::with(token(
+            "access",
+            Some("refresh"),
+            Utc::now() + ChronoDuration::hours(1),
+        ));
         let auth = AuthManager::new("https://api.nolgia.ai", store.clone());
 
         auth.logout().expect("logout succeeds");
@@ -711,7 +830,11 @@ mod tests {
 
     #[test]
     fn keyring_store_serializes_access_and_refresh_separately() {
-        let tokens = token("access", Some("refresh"), Utc::now() + ChronoDuration::hours(1));
+        let tokens = token(
+            "access",
+            Some("refresh"),
+            Utc::now() + ChronoDuration::hours(1),
+        );
         let mut access_only = tokens.clone();
         access_only.refresh_token = None;
 
@@ -721,7 +844,9 @@ mod tests {
         map.insert(ACCESS_TOKEN_ACCOUNT, access_json);
         map.insert(REFRESH_TOKEN_ACCOUNT, refresh_value);
 
-        let mut loaded: StoredTokens = serde_json::from_str(map.get(ACCESS_TOKEN_ACCOUNT).expect("access")).expect("loads access");
+        let mut loaded: StoredTokens =
+            serde_json::from_str(map.get(ACCESS_TOKEN_ACCOUNT).expect("access"))
+                .expect("loads access");
         loaded.refresh_token = map.get(REFRESH_TOKEN_ACCOUNT).cloned();
 
         assert_eq!(loaded.access_token, "access");
@@ -781,10 +906,17 @@ mod tests {
             .await;
     }
 
-    async fn mount_refresh(server: &MockServer, refresh_token: &str, access_token: &str, new_refresh: Option<&str>) {
+    async fn mount_refresh(
+        server: &MockServer,
+        refresh_token: &str,
+        access_token: &str,
+        new_refresh: Option<&str>,
+    ) {
         Mock::given(method("POST"))
             .and(path("/v1/auth/device/token"))
-            .and(body_json(json!({ "client_id": CLIENT_ID, "device_code": refresh_token })))
+            .and(body_json(
+                json!({ "client_id": CLIENT_ID, "device_code": refresh_token }),
+            ))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "access_token": access_token,
                 "refresh_token": new_refresh,

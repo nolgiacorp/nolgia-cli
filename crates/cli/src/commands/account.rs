@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Subcommand;
 use serde::Serialize;
 
-use crate::output::{print_json, OutputFormat};
+use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
 
@@ -26,7 +26,13 @@ pub async fn run(command: AccountCommand, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn me(ctx: &CommandContext) -> Result<()> {
-    let user = ctx.client().get_current_user().send().await.context("fetching current user")?.into_inner();
+    let user = ctx
+        .client()
+        .get_current_user()
+        .send()
+        .await
+        .context("fetching current user")?
+        .into_inner();
     match ctx.format() {
         OutputFormat::Json => print_json(&user),
         OutputFormat::Text => {
@@ -37,13 +43,31 @@ async fn me(ctx: &CommandContext) -> Result<()> {
 }
 
 async fn usage(ctx: &CommandContext) -> Result<()> {
-    let jobs = ctx.client().list_jobs().send().await.context("listing jobs for usage")?.into_inner();
-    let assets = ctx.client().list_assets().send().await.context("listing assets for usage")?.into_inner();
-    let summary = UsageSummary { jobs_visible: jobs.items.len(), assets_visible: assets.items.len() };
+    let jobs = ctx
+        .client()
+        .list_jobs()
+        .send()
+        .await
+        .context("listing jobs for usage")?
+        .into_inner();
+    let assets = ctx
+        .client()
+        .list_assets()
+        .send()
+        .await
+        .context("listing assets for usage")?
+        .into_inner();
+    let summary = UsageSummary {
+        jobs_visible: jobs.items.len(),
+        assets_visible: assets.items.len(),
+    };
     match ctx.format() {
         OutputFormat::Json => print_json(&summary),
         OutputFormat::Text => {
-            println!("jobs: {} assets: {}", summary.jobs_visible, summary.assets_visible);
+            println!(
+                "jobs: {} assets: {}",
+                summary.jobs_visible, summary.assets_visible
+            );
             Ok(())
         }
     }

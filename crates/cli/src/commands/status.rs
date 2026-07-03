@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use uuid::Uuid;
 
-use crate::output::{print_json, OutputFormat};
+use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
 

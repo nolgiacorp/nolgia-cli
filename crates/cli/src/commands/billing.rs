@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 
-use crate::output::{print_json, OutputFormat};
+use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
 
@@ -25,7 +25,13 @@ pub async fn run(command: BillingCommand, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn subscription(ctx: &CommandContext) -> Result<()> {
-    let subscription = ctx.client().get_subscription().send().await.context("fetching subscription")?.into_inner();
+    let subscription = ctx
+        .client()
+        .get_subscription()
+        .send()
+        .await
+        .context("fetching subscription")?
+        .into_inner();
     match ctx.format() {
         OutputFormat::Json => print_json(&subscription),
         OutputFormat::Text => {
@@ -36,11 +42,19 @@ async fn subscription(ctx: &CommandContext) -> Result<()> {
 }
 
 async fn portal(args: PortalArgs, ctx: &CommandContext) -> Result<()> {
-    let body: nolgia_client::types::PortalLinkRequest = nolgia_client::types::PortalLinkRequest::builder()
-        .return_url(args.return_url)
-        .try_into()
-        .context("building portal request")?;
-    let portal = ctx.client().create_portal_link().body(body).send().await.context("creating portal link")?.into_inner();
+    let body: nolgia_client::types::PortalLinkRequest =
+        nolgia_client::types::PortalLinkRequest::builder()
+            .return_url(args.return_url)
+            .try_into()
+            .context("building portal request")?;
+    let portal = ctx
+        .client()
+        .create_portal_link()
+        .body(body)
+        .send()
+        .await
+        .context("creating portal link")?
+        .into_inner();
     match ctx.format() {
         OutputFormat::Json => print_json(&portal),
         OutputFormat::Text => {

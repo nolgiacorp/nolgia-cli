@@ -1,6 +1,9 @@
 use nolgia_client::ClientBuilder;
 use serde_json::json;
-use wiremock::{matchers::{header, method, path}, Mock, MockServer, ResponseTemplate};
+use wiremock::{
+    Mock, MockServer, ResponseTemplate,
+    matchers::{header, method, path},
+};
 
 #[tokio::test]
 async fn adds_bearer_token_and_targets_v1_me() {

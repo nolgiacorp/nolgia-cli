@@ -1,10 +1,10 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::{Args, Subcommand};
 use nolgia_client::types::Modality;
 use std::{fs, num::NonZeroU64, path::PathBuf};
 use uuid::Uuid;
 
-use crate::output::{print_json, OutputFormat};
+use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
 
@@ -47,9 +47,15 @@ pub async fn run(command: AssetsCommand, ctx: &CommandContext) -> Result<()> {
 
 async fn list(args: ListAssetsArgs, ctx: &CommandContext) -> Result<()> {
     let mut request = ctx.client().list_assets();
-    if let Some(limit) = args.limit { request = request.limit(limit); }
-    if let Some(cursor) = args.cursor { request = request.cursor(cursor); }
-    if let Some(modality) = args.modality { request = request.modality(modality); }
+    if let Some(limit) = args.limit {
+        request = request.limit(limit);
+    }
+    if let Some(cursor) = args.cursor {
+        request = request.cursor(cursor);
+    }
+    if let Some(modality) = args.modality {
+        request = request.modality(modality);
+    }
     let page = request.send().await.context("listing assets")?.into_inner();
 
     match ctx.format() {
@@ -72,7 +78,9 @@ async fn get(args: GetAssetArgs, _ctx: &CommandContext) -> Result<()> {
         println!("wrote {}", out.display());
         Ok(())
     } else {
-        bail!("asset lookup by id is not exposed by the current API; pass --out to create a target file")
+        bail!(
+            "asset lookup by id is not exposed by the current API; pass --out to create a target file"
+        )
     }
 }
 
