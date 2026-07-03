@@ -1111,6 +1111,13 @@ components:
           type: integer
           nullable: true
           minimum: 0
+        generate_audio:
+          type: boolean
+          nullable: true
+          description: >-
+            Ask the model to generate a synchronized audio track
+            (dialogue/ambient/SFX). Model-dependent — supported by Seedance
+            and Veo; ignored by models without native audio.
 
     JobStatus:
       type: string
