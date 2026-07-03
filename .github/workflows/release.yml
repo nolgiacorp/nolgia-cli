@@ -30,10 +30,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libdbus-1-dev pkg-config
 
       - name: Run tests
-        run: cargo test --workspace --all-features --locked
+        # The e2e feature gates live-API tests (real generations, needs a token); compile-check it via clippy instead.
+        run: cargo test --workspace --locked
 
       - name: Run clippy
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
       - name: Check formatting
         run: cargo fmt --all -- --check
