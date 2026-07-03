@@ -10,75 +10,94 @@ You can install the CLI directly using Cargo:
 cargo install nolgia-cli
 ```
 
-Alternatively, download the latest binary from the [GitHub Releases](https://github.com/nolgiacorp/nolgia-cli/releases) page.
+Alternatively, download the latest binary from the [GitHub Releases](https://github.com/nolgiacorp/nolgia-cli/releases) page. The binary is named `nolgia`.
 
 ## Authentication
 
-The CLI uses device-code OAuth for secure authentication.
+The CLI supports two ways to authenticate:
+
+**Device-code login (interactive).** Tokens are stored in the system keyring and refreshed automatically.
 
 ```bash
-# Log in to your account
-nolgia login
+nolgia auth login          # opens a device-code flow; approve at the printed URL
+nolgia auth status         # prints "email (tier)", e.g. admin@nolgia.ai (pro)
+nolgia auth logout
+```
 
-# Check your current authentication status
-nolgia auth status
+**Personal Access Token (scripts, CI, agents).** Create a PAT via `POST /v1/pat` (or the web dashboard) and pass it with `--token` or the `NOLGIA_TOKEN` env var. PATs start with `nol_`.
+
+```bash
+export NOLGIA_TOKEN=nol_...
+nolgia auth status         # works with --token / NOLGIA_TOKEN too
+```
+
+## Credits and subscription
+
+Generation costs credits. There are two pools, and which one a request spends from depends on how you authenticate:
+
+- **Subscription credits** (`app_subscription`): granted by your monthly or yearly plan. Spent by requests authenticated with a **device-login session** (and by the web app).
+- **API credits** (`shared_topup`): prepaid top-ups purchased from the billing dashboard; they never expire. Requests authenticated with a **PAT** spend only from this pool, regardless of subscription tier.
+
+If the applicable pool cannot cover a generation, the API returns `402 Payment Required` and the CLI surfaces it. Top up from the web billing page (`nolgia billing portal` opens Stripe for plan management).
+
+```bash
+nolgia billing subscription   # tier + status, e.g. "pro active"
+nolgia billing portal         # prints a Stripe customer-portal URL
+nolgia account usage          # job and asset counts
 ```
 
 ## Commands
 
 ### Generation
 
-Generate media using various modalities:
-
 ```bash
-# Generate an image
-nolgia gen image --prompt "A serene mountain lake"
+# Generate an image (waits and prints a signed URL; --out saves the file)
+nolgia gen image --prompt "A serene mountain lake" --out lake.png
 
 # Generate audio
 nolgia gen audio --prompt "Lofi hip hop beats for studying"
 
-# Generate video
+# Generate video (async; --no-wait returns the job id immediately)
 nolgia gen video --prompt "A drone shot over a coastline"
 ```
 
-### Management
+Model selection is via `--model`; defaults are `flux-pro` (image), `fal-ai/stable-audio-25/text-to-audio` (audio), and `fal-ai/kling-video/v3/text-to-video` (video).
 
-List and retrieve details for your jobs and assets:
-
-```bash
-# Jobs
-nolgia jobs list
-nolgia jobs get <id>
-
-# Assets
-nolgia assets list
-nolgia assets get <id>
-```
-
-### Account and Billing
-
-Manage your Nolgia account:
+### Jobs
 
 ```bash
-# Open the Stripe billing portal
-nolgia billing portal
-
-# View account details
-nolgia account
+nolgia status <job-id>     # current job status
+nolgia wait <job-id>       # block until the job finishes (default timeout 300s)
 ```
+
+### Assets
+
+```bash
+nolgia assets list [--limit N] [--modality image|video|audio]
+```
+
+### Account
+
+```bash
+nolgia account me          # id + email for the current token
+nolgia account usage       # job and asset counts
+```
+
+## Global flags and environment
+
+| Flag | Env | Default | Purpose |
+|---|---|---|---|
+| `--api-url` | `NOLGIA_API_URL` | `https://api.nolgia.ai` | API base URL (the client appends `/v1`) |
+| `--token` | `NOLGIA_TOKEN` | keyring | Bearer token (PAT or JWT); overrides the stored login |
+| `--json` | — | off | Machine-readable output |
 
 ## Development Quickstart
-
-### Build
 
 Ensure you have the Rust 2024 edition toolchain installed.
 
 ```bash
-# Build the project
-cargo build --release
-
-# Run tests across the workspace
+cargo build --release      # binary at target/release/nolgia
 cargo test --workspace
 ```
 
-The CLI is built with `tokio`, `reqwest`, and `clap`.
+The API client crate is generated from `nolgia-api/api/openapi.yaml` (see `crates/client/build.rs`); do not hand-edit generated API shapes. The CLI is built with `tokio`, `reqwest`, and `clap`.
