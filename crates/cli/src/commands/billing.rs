@@ -8,6 +8,7 @@ use super::CommandContext;
 #[derive(Subcommand, Debug)]
 pub enum BillingCommand {
     Subscription,
+    Credits,
     Portal(PortalArgs),
 }
 
@@ -20,7 +21,29 @@ pub struct PortalArgs {
 pub async fn run(command: BillingCommand, ctx: &CommandContext) -> Result<()> {
     match command {
         BillingCommand::Subscription => subscription(ctx).await,
+        BillingCommand::Credits => credits(ctx).await,
         BillingCommand::Portal(args) => portal(args, ctx).await,
+    }
+}
+
+async fn credits(ctx: &CommandContext) -> Result<()> {
+    let balance = ctx
+        .client()
+        .get_credits()
+        .send()
+        .await
+        .context("fetching credit balance")?
+        .into_inner();
+    match ctx.format() {
+        OutputFormat::Json => print_json(&balance),
+        OutputFormat::Text => {
+            println!(
+                "subscription: {} (resets with plan)  api top-ups: {}",
+                balance.app_subscription, balance.shared_topup
+            );
+            println!("total: {}", balance.total);
+            Ok(())
+        }
     }
 }
 

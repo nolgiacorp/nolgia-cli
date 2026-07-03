@@ -84,6 +84,18 @@ async fn get(args: GetAssetArgs, _ctx: &CommandContext) -> Result<()> {
     }
 }
 
-async fn delete(_args: DeleteAssetArgs, _ctx: &CommandContext) -> Result<()> {
-    bail!("asset deletion is not exposed by the current API")
+async fn delete(args: DeleteAssetArgs, ctx: &CommandContext) -> Result<()> {
+    ctx.client()
+        .delete_asset()
+        .id(args.asset_id)
+        .send()
+        .await
+        .context("deleting asset")?;
+    match ctx.format() {
+        OutputFormat::Json => print_json(&serde_json::json!({ "deleted": args.asset_id })),
+        OutputFormat::Text => {
+            println!("deleted {}", args.asset_id);
+            Ok(())
+        }
+    }
 }

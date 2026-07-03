@@ -4,7 +4,7 @@ mod output;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use commands::{CommandContext, account, assets, billing, r#gen, status, wait};
+use commands::{CommandContext, account, assets, billing, r#gen, pat, status, wait};
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
 
@@ -44,6 +44,8 @@ pub enum Commands {
     Account(account::AccountCommand),
     #[command(subcommand, about = "Inspect billing state and portal links")]
     Billing(billing::BillingCommand),
+    #[command(subcommand, about = "Manage personal access tokens")]
+    Pat(pat::PatCommand),
 }
 
 #[tokio::main]
@@ -70,6 +72,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Assets(command) => assets::run(command, &ctx).await,
         Commands::Account(command) => account::run(command, &ctx).await,
         Commands::Billing(command) => billing::run(command, &ctx).await,
+        Commands::Pat(command) => pat::run(command, &ctx).await,
     }
 }
 

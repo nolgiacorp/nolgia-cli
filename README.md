@@ -24,7 +24,7 @@ nolgia auth status         # prints "email (tier)", e.g. admin@nolgia.ai (pro)
 nolgia auth logout
 ```
 
-**Personal Access Token (scripts, CI, agents).** Create a PAT via `POST /v1/pat` (or the web dashboard) and pass it with `--token` or the `NOLGIA_TOKEN` env var. PATs start with `nol_`.
+**Personal Access Token (scripts, CI, agents).** Create a PAT with `nolgia pat create` (or the web dashboard) and pass it with `--token` or the `NOLGIA_TOKEN` env var. PATs start with `nol_`.
 
 ```bash
 export NOLGIA_TOKEN=nol_...
@@ -42,6 +42,7 @@ If the applicable pool cannot cover a generation, the API returns `402 Payment R
 
 ```bash
 nolgia billing subscription   # tier + status, e.g. "pro active"
+nolgia billing credits        # both pools, e.g. "subscription: 546631 (resets with plan)  api top-ups: 0"
 nolgia billing portal         # prints a Stripe customer-portal URL
 nolgia account usage          # job and asset counts
 ```
@@ -74,6 +75,7 @@ nolgia wait <job-id>       # block until the job finishes (default timeout 300s)
 
 ```bash
 nolgia assets list [--limit N] [--modality image|video|audio]
+nolgia assets delete <asset-id>
 ```
 
 ### Account
@@ -81,6 +83,17 @@ nolgia assets list [--limit N] [--modality image|video|audio]
 ```bash
 nolgia account me          # id + email for the current token
 nolgia account usage       # job and asset counts
+nolgia billing credits     # subscription vs API credit pools
+```
+
+### API access tokens
+
+Personal Access Tokens authenticate scripts, CI, and agents; they spend the prepaid API credit pool (see [Credits and subscription](#credits-and-subscription)).
+
+```bash
+nolgia pat create --name my-laptop-cli   # prints the plaintext token ONCE; store it securely
+nolgia pat list                          # id, name, prefix, created, last used
+nolgia pat revoke <pat-id>
 ```
 
 ## Global flags and environment

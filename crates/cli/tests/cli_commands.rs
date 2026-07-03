@@ -9,6 +9,7 @@ use wiremock::{
 
 const JOB_ID: &str = "11111111-1111-4111-8111-111111111111";
 const USER_ID: &str = "22222222-2222-4222-8222-222222222222";
+const PAT_ID: &str = "33333333-3333-4333-8333-333333333333";
 
 #[test]
 fn help_lists_full_command_surface() {
@@ -22,7 +23,8 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("wait"))
         .stdout(predicate::str::contains("assets"))
         .stdout(predicate::str::contains("account"))
-        .stdout(predicate::str::contains("billing"));
+        .stdout(predicate::str::contains("billing"))
+        .stdout(predicate::str::contains("pat"));
 }
 
 #[test]
@@ -200,13 +202,16 @@ fn assets_get_creates_target_file() {
     assert!(out.exists());
 }
 
-#[test]
-fn assets_delete_reports_unavailable_api() {
-    cmd()
-        .args(["assets", "delete", JOB_ID])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("asset deletion"));
+#[tokio::test]
+async fn assets_delete_removes_asset() {
+    let api = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/assets/{JOB_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["assets", "delete", JOB_ID])
+        .stdout(predicate::str::contains(format!("deleted {JOB_ID}")));
 }
 
 #[tokio::test]
@@ -265,6 +270,80 @@ async fn billing_portal_outputs_url() {
     run_ok(&api, &["billing", "portal"]).stdout(predicate::str::contains("billing.example"));
 }
 
+#[tokio::test]
+async fn billing_credits_shows_both_pools() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/billing/credits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(credit_balance_json()))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["billing", "credits"])
+        .stdout(predicate::str::contains(
+            "subscription: 546631 (resets with plan)  api top-ups: 250",
+        ))
+        .stdout(predicate::str::contains("total: 546881"));
+}
+
+#[tokio::test]
+async fn json_billing_credits_emits_raw_balance() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/billing/credits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(credit_balance_json()))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["--json", "billing", "credits"])
+        .stdout(predicate::str::contains("app_subscription"))
+        .stdout(predicate::str::contains("shared_topup"))
+        .stdout(predicate::str::contains("buckets"));
+}
+
+#[tokio::test]
+async fn pat_create_prints_token_once_with_warning() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/pat"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "pat": pat_json(),
+            "token": "nol_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6"
+        })))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["pat", "create", "--name", "ci-bot"])
+        .stdout(predicate::str::contains(
+            "token: nol_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+        ))
+        .stdout(predicate::str::contains("will not be shown again"));
+}
+
+#[tokio::test]
+async fn pat_list_outputs_tokens() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/pat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [pat_json()]})))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["pat", "list"])
+        .stdout(predicate::str::contains(PAT_ID))
+        .stdout(predicate::str::contains("ci-bot"))
+        .stdout(predicate::str::contains("nol_a1b2"))
+        .stdout(predicate::str::contains("never"));
+}
+
+#[tokio::test]
+async fn pat_revoke_deletes_token() {
+    let api = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/pat/{PAT_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["pat", "revoke", PAT_ID])
+        .stdout(predicate::str::contains(format!("revoked {PAT_ID}")));
+}
+
 #[test]
 fn auth_help_lists_device_flow_commands() {
     cmd()
@@ -286,13 +365,16 @@ fn invalid_timeout_is_rejected() {
         .stderr(predicate::str::contains("timeout"));
 }
 
-#[test]
-fn json_global_flag_is_accepted_before_command() {
-    cmd()
-        .args(["--json", "assets", "delete", JOB_ID])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("asset deletion"));
+#[tokio::test]
+async fn json_global_flag_is_accepted_before_command() {
+    let api = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/assets/{JOB_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["--json", "assets", "delete", JOB_ID])
+        .stdout(predicate::str::contains("deleted"));
 }
 
 #[test]
@@ -417,6 +499,24 @@ fn job_json(status: &str, files_base: Option<&str>) -> serde_json::Value {
         "id": JOB_ID, "user_id": USER_ID, "modality": "video", "model": "fal-ai/kling-video/v3/text-to-video",
         "status": status, "asset": files_base.map(|base| asset_json(&format!("{base}/video.mp4"))),
         "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
+    })
+}
+
+fn credit_balance_json() -> serde_json::Value {
+    json!({
+        "user_id": USER_ID, "app_subscription": 546631, "shared_topup": 250, "total": 546881,
+        "available_for_app": 546881, "available_for_api": 250,
+        "buckets": [
+            {"wallet_id": Uuid::new_v4(), "type": "app_subscription", "balance": 546631, "expires_at": "2026-08-01T00:00:00Z"},
+            {"wallet_id": Uuid::new_v4(), "type": "shared_topup", "balance": 250, "expires_at": null}
+        ]
+    })
+}
+
+fn pat_json() -> serde_json::Value {
+    json!({
+        "id": PAT_ID, "name": "ci-bot", "prefix": "nol_a1b2",
+        "created_at": "2026-06-13T00:00:00Z", "last_used_at": null, "revoked_at": null
     })
 }
 
