@@ -88,6 +88,7 @@ jobs:
         run: |
           set -euxo pipefail
           for target in ${{ matrix.targets }}; do
+            rustup target add "$target"
             cargo build --release --target "$target" --bin ${{ matrix.binary }} --locked
           done
 
