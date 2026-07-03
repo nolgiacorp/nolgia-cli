@@ -920,6 +920,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AspectRatio'
+        image_input:
+          type: boolean
+          description: |
+            Whether the model accepts an `image_url`. Dedicated image-to-video
+            variants require one; models like Veo and Omni Flash take one
+            optionally alongside the text prompt.
 
     AudioCapabilities:
       type: object
@@ -1017,6 +1023,7 @@ components:
         - fal-ai/bytedance/seedance/v2/pro/image-to-video
         - veo-3.1
         - veo-3.1-fast
+        - omni-flash
 
     ImageSize:
       type: string
