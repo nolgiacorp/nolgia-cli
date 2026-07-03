@@ -92,6 +92,9 @@ pub struct AudioArgs {
     pub input: Option<PathBuf>,
     #[arg(long)]
     pub out: Option<PathBuf>,
+    /// Voice id for TTS models (see `nolgia models get <model>`)
+    #[arg(long)]
+    pub voice: Option<String>,
     #[arg(long, default_value = "mp3")]
     pub format: AudioFormat,
     #[arg(long, default_value_t = false)]
@@ -216,9 +219,15 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
+    let voice = args
+        .voice
+        .map(nolgia_client::types::GenerateAudioRequestVoice::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--voice: {e}"))?;
     let body: GenerateAudioRequest = GenerateAudioRequest::builder()
         .model(args.model)
         .prompt(args.prompt)
+        .voice(voice)
         .format(args.format)
         .try_into()
         .context("building audio request")?;
