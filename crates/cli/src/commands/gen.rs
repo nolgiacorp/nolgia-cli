@@ -47,8 +47,10 @@ pub struct VideoArgs {
     pub model: VideoModel,
     #[arg(long)]
     pub prompt: String,
-    /// Start image for image-to-video models: a local file (uploaded to
-    /// /assets) or the UUID of an existing asset (reused, fresh signed URL).
+    /// Start image: a local file (uploaded to /assets) or the UUID of an
+    /// existing asset (reused, fresh signed URL). Required for
+    /// image-to-video models; optional on models with image input
+    /// support (Veo, Omni Flash) per `nolgia models list`.
     #[arg(long)]
     pub input: Option<String>,
     #[arg(long)]

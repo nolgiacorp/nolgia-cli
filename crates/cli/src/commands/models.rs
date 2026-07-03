@@ -97,7 +97,12 @@ fn capability_line(model: &Model) -> String {
             .map(|r| format!("{r:?}").replace('N', "").replace('_', ":"))
             .collect::<Vec<_>>()
             .join(" ");
-        return format!("{durations}  {ratios}").trim().to_string();
+        let image_input = if video.image_input == Some(true) {
+            "  image-input"
+        } else {
+            ""
+        };
+        return format!("{durations}  {ratios}{image_input}").trim().to_string();
     }
     if let Some(audio) = &model.audio
         && !audio.voices.is_empty()
