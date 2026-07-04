@@ -6,7 +6,8 @@ mod update_check;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
-    CommandContext, account, assets, billing, r#gen, models, pat, skills, status, wait,
+    CommandContext, account, assets, billing, characters, r#gen, models, pat, projects, skills,
+    status, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
 use output::OutputFormat;
@@ -43,6 +44,10 @@ pub enum Commands {
     Wait(wait::WaitArgs),
     #[command(subcommand, about = "List and manage generated assets")]
     Assets(assets::AssetsCommand),
+    #[command(subcommand, about = "Manage reusable characters for generation")]
+    Characters(characters::CharactersCommand),
+    #[command(subcommand, about = "Group assets into projects")]
+    Projects(projects::ProjectsCommand),
     #[command(subcommand, about = "Inspect account details and usage")]
     Account(account::AccountCommand),
     #[command(subcommand, about = "Inspect billing state and portal links")]
@@ -118,6 +123,8 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Status(args) => status::run(args, &ctx).await,
         Commands::Wait(args) => wait::run(args, &ctx).await,
         Commands::Assets(command) => assets::run(command, &ctx).await,
+        Commands::Characters(command) => characters::run(command, &ctx).await,
+        Commands::Projects(command) => projects::run(command, &ctx).await,
         Commands::Account(command) => account::run(command, &ctx).await,
         Commands::Billing(command) => billing::run(command, &ctx).await,
         Commands::Pat(command) => pat::run(command, &ctx).await,

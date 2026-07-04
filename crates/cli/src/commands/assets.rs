@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use nolgia_client::types::Modality;
+use nolgia_client::types::{Modality, UpdateAssetRequest, UpdateAssetRequestTagsItem};
 use std::{num::NonZeroU64, path::PathBuf};
 use uuid::Uuid;
 
@@ -15,6 +15,8 @@ pub enum AssetsCommand {
     Delete(DeleteAssetArgs),
     /// Upload an image (png/jpeg/webp) and get a reusable asset id
     Upload(UploadAssetArgs),
+    /// Replace an asset's full tag set
+    Tag(TagAssetArgs),
 }
 
 #[derive(Args, Debug)]
@@ -25,6 +27,12 @@ pub struct ListAssetsArgs {
     pub cursor: Option<String>,
     #[arg(long)]
     pub modality: Option<Modality>,
+    /// Return only assets carrying the given tag
+    #[arg(long)]
+    pub tag: Option<String>,
+    /// Return only assets belonging to the given project
+    #[arg(long)]
+    pub project_id: Option<Uuid>,
 }
 
 #[derive(Args, Debug)]
@@ -44,12 +52,25 @@ pub struct UploadAssetArgs {
     pub file: PathBuf,
 }
 
+#[derive(Args, Debug)]
+pub struct TagAssetArgs {
+    pub asset_id: Uuid,
+    /// Tag to set (repeat for multiple, up to 10). The full tag set is replaced;
+    /// tags are trimmed, lowercased, and de-duplicated server-side.
+    #[arg(long, value_name = "TAG")]
+    pub tag: Vec<String>,
+    /// Remove all tags from the asset (cannot be combined with --tag)
+    #[arg(long, conflicts_with = "tag")]
+    pub clear: bool,
+}
+
 pub async fn run(command: AssetsCommand, ctx: &CommandContext) -> Result<()> {
     match command {
         AssetsCommand::List(args) => list(args, ctx).await,
         AssetsCommand::Get(args) => get(args, ctx).await,
         AssetsCommand::Delete(args) => delete(args, ctx).await,
         AssetsCommand::Upload(args) => upload(args, ctx).await,
+        AssetsCommand::Tag(args) => tag(args, ctx).await,
     }
 }
 
@@ -63,6 +84,12 @@ async fn list(args: ListAssetsArgs, ctx: &CommandContext) -> Result<()> {
     }
     if let Some(modality) = args.modality {
         request = request.modality(modality);
+    }
+    if let Some(tag) = args.tag {
+        request = request.tag(tag);
+    }
+    if let Some(project_id) = args.project_id {
+        request = request.project_id(project_id);
     }
     let page = request.send().await.context("listing assets")?.into_inner();
 
@@ -121,6 +148,40 @@ async fn delete(args: DeleteAssetArgs, ctx: &CommandContext) -> Result<()> {
         OutputFormat::Json => print_json(&serde_json::json!({ "deleted": args.asset_id })),
         OutputFormat::Text => {
             println!("deleted {}", args.asset_id);
+            Ok(())
+        }
+    }
+}
+
+async fn tag(args: TagAssetArgs, ctx: &CommandContext) -> Result<()> {
+    anyhow::ensure!(
+        !args.tag.is_empty() || args.clear,
+        "provide at least one --tag, or --clear to remove all tags"
+    );
+    let tags: Vec<UpdateAssetRequestTagsItem> = args
+        .tag
+        .iter()
+        .map(|t| t.parse())
+        .collect::<Result<_, _>>()
+        .context("invalid --tag")?;
+    let body: UpdateAssetRequest = UpdateAssetRequest::builder()
+        .tags(tags)
+        .try_into()
+        .context("building tag request")?;
+    let asset = ctx
+        .client()
+        .update_asset()
+        .id(args.asset_id)
+        .body(body)
+        .send()
+        .await
+        .context("tagging asset")?
+        .into_inner();
+    match ctx.format() {
+        OutputFormat::Json => print_json(&asset),
+        OutputFormat::Text => {
+            let tags: Vec<&str> = asset.tags.iter().map(|t| t.as_str()).collect();
+            println!("{} tags: [{}]", asset.id, tags.join(", "));
             Ok(())
         }
     }

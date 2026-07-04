@@ -1,9 +1,11 @@
 pub mod account;
 pub mod assets;
 pub mod billing;
+pub mod characters;
 pub mod r#gen;
 pub mod models;
 pub mod pat;
+pub mod projects;
 pub mod skills;
 pub mod status;
 pub mod wait;

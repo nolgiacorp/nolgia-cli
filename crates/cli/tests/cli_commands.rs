@@ -4,12 +4,15 @@ use serde_json::json;
 use uuid::Uuid;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{method, path},
+    matchers::{body_json, method, path, query_param},
 };
 
 const JOB_ID: &str = "11111111-1111-4111-8111-111111111111";
 const USER_ID: &str = "22222222-2222-4222-8222-222222222222";
 const PAT_ID: &str = "33333333-3333-4333-8333-333333333333";
+const CHARACTER_ID: &str = "44444444-4444-4444-8444-444444444444";
+const PROJECT_ID: &str = "55555555-5555-4555-8555-555555555555";
+const ASSET_ID: &str = "66666666-6666-4666-8666-666666666666";
 
 #[test]
 fn help_lists_full_command_surface() {
@@ -22,6 +25,8 @@ fn help_lists_full_command_surface() {
         .stdout(predicate::str::contains("status"))
         .stdout(predicate::str::contains("wait"))
         .stdout(predicate::str::contains("assets"))
+        .stdout(predicate::str::contains("characters"))
+        .stdout(predicate::str::contains("projects"))
         .stdout(predicate::str::contains("account"))
         .stdout(predicate::str::contains("billing"))
         .stdout(predicate::str::contains("pat"));
@@ -238,6 +243,254 @@ async fn assets_delete_removes_asset() {
         .await;
     run_ok(&api, &["assets", "delete", JOB_ID])
         .stdout(predicate::str::contains(format!("deleted {JOB_ID}")));
+}
+
+#[tokio::test]
+async fn assets_list_sends_tag_filter() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/assets"))
+        .and(query_param("tag", "hero"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"items": [asset_json("https://files/a.png")]})),
+        )
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(&api, &["assets", "list", "--tag", "hero"]).stdout(predicate::str::contains("a.png"));
+}
+
+#[tokio::test]
+async fn assets_tag_sends_patch_body_and_prints_tags() {
+    let api = MockServer::start().await;
+    let mut asset = asset_json("https://files/a.png");
+    asset["tags"] = json!(["hero", "draft"]);
+    Mock::given(method("PATCH"))
+        .and(path(format!("/v1/assets/{ASSET_ID}")))
+        .and(body_json(json!({"tags": ["hero", "draft"]})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(asset))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &["assets", "tag", ASSET_ID, "--tag", "hero", "--tag", "draft"],
+    )
+    .stdout(predicate::str::contains("tags: [hero, draft]"));
+}
+
+#[tokio::test]
+async fn assets_tag_clear_sends_empty_tag_set() {
+    let api = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path(format!("/v1/assets/{ASSET_ID}")))
+        .and(body_json(json!({"tags": []})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(asset_json("https://files/a.png")))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(&api, &["assets", "tag", ASSET_ID, "--clear"])
+        .stdout(predicate::str::contains("tags: []"));
+}
+
+#[test]
+fn assets_tag_requires_tag_or_clear() {
+    cmd()
+        .args(["assets", "tag", ASSET_ID, "--api-url", "http://127.0.0.1:9"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--tag"));
+}
+
+#[tokio::test]
+async fn characters_list_outputs_characters() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/characters"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"characters": [character_json()]})),
+        )
+        .mount(&api)
+        .await;
+    run_ok(&api, &["characters", "list"])
+        .stdout(predicate::str::contains(CHARACTER_ID))
+        .stdout(predicate::str::contains("Captain Nova"))
+        .stdout(predicate::str::contains("1 reference"));
+}
+
+#[tokio::test]
+async fn characters_create_sends_body() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/characters"))
+        .and(body_json(json!({
+            "name": "Captain Nova",
+            "description": "Silver-haired astronaut",
+            "reference_asset_ids": [ASSET_ID]
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(character_json()))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "characters",
+            "create",
+            "--name",
+            "Captain Nova",
+            "--description",
+            "Silver-haired astronaut",
+            "--reference-asset-id",
+            ASSET_ID,
+        ],
+    )
+    .stdout(predicate::str::contains(CHARACTER_ID));
+}
+
+#[tokio::test]
+async fn characters_update_sends_only_provided_fields() {
+    let api = MockServer::start().await;
+    Mock::given(method("PATCH"))
+        .and(path(format!("/v1/characters/{CHARACTER_ID}")))
+        .and(body_json(json!({"name": "Nova Prime"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(character_json()))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &["characters", "update", CHARACTER_ID, "--name", "Nova Prime"],
+    )
+    .stdout(predicate::str::contains(CHARACTER_ID));
+}
+
+#[tokio::test]
+async fn characters_delete_removes_character() {
+    let api = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/characters/{CHARACTER_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["characters", "delete", CHARACTER_ID])
+        .stdout(predicate::str::contains(format!("deleted {CHARACTER_ID}")));
+}
+
+#[test]
+fn characters_create_rejects_more_than_four_references() {
+    let a = "77777777-7777-4777-8777-777777777777";
+    cmd()
+        .args([
+            "characters",
+            "create",
+            "--name",
+            "x",
+            "--reference-asset-id",
+            a,
+            "--reference-asset-id",
+            a,
+            "--reference-asset-id",
+            a,
+            "--reference-asset-id",
+            a,
+            "--reference-asset-id",
+            a,
+            "--api-url",
+            "http://127.0.0.1:9",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("at most 4"));
+}
+
+#[tokio::test]
+async fn projects_list_outputs_projects() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/projects"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"projects": [project_json()]})),
+        )
+        .mount(&api)
+        .await;
+    run_ok(&api, &["projects", "list"])
+        .stdout(predicate::str::contains(PROJECT_ID))
+        .stdout(predicate::str::contains("Launch teaser"))
+        .stdout(predicate::str::contains("3 assets"));
+}
+
+#[tokio::test]
+async fn projects_create_sends_body() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/projects"))
+        .and(body_json(json!({
+            "name": "Launch teaser",
+            "description": "Spring launch assets"
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(project_json()))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "projects",
+            "create",
+            "--name",
+            "Launch teaser",
+            "--description",
+            "Spring launch assets",
+        ],
+    )
+    .stdout(predicate::str::contains(PROJECT_ID));
+}
+
+#[tokio::test]
+async fn projects_add_assets_sends_body() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/projects/{PROJECT_ID}/assets")))
+        .and(body_json(json!({"asset_ids": [ASSET_ID]})))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &["projects", "add-assets", PROJECT_ID, "--asset-id", ASSET_ID],
+    )
+    .stdout(predicate::str::contains("added 1 asset"));
+}
+
+#[tokio::test]
+async fn projects_remove_asset_deletes_membership() {
+    let api = MockServer::start().await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/v1/projects/{PROJECT_ID}/assets/{ASSET_ID}")))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["projects", "remove-asset", PROJECT_ID, ASSET_ID]).stdout(
+        predicate::str::contains(format!("removed {ASSET_ID} from {PROJECT_ID}")),
+    );
+}
+
+#[test]
+fn projects_add_assets_requires_asset_id() {
+    cmd()
+        .args([
+            "projects",
+            "add-assets",
+            PROJECT_ID,
+            "--api-url",
+            "http://127.0.0.1:9",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--asset-id"));
 }
 
 #[tokio::test]
@@ -517,6 +770,23 @@ fn asset_json(url: &str) -> serde_json::Value {
     json!({
         "id": Uuid::new_v4(), "user_id": USER_ID, "modality": "image", "model": "fal-ai/flux-pro/v1.1",
         "signed_url": url, "expires_at": "2026-06-13T00:00:00Z", "created_at": "2026-06-13T00:00:00Z"
+    })
+}
+
+fn character_json() -> serde_json::Value {
+    json!({
+        "id": CHARACTER_ID, "user_id": USER_ID, "name": "Captain Nova",
+        "description": "Silver-haired astronaut",
+        "reference_assets": [asset_json("https://files/ref.png")],
+        "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
+    })
+}
+
+fn project_json() -> serde_json::Value {
+    json!({
+        "id": PROJECT_ID, "user_id": USER_ID, "name": "Launch teaser",
+        "description": "Spring launch assets", "asset_count": 3,
+        "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
     })
 }
 

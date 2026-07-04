@@ -47,7 +47,9 @@ Every command takes `--json` for machine-readable output, which is how agent pip
 | `nolgia auth login` / `status` / `logout` | Device-code sign-in, token storage in the system keyring |
 | `nolgia gen image` / `video` / `audio` | Submit generations, wait, and download results |
 | `nolgia status` / `wait` | Inspect or block on a job |
-| `nolgia assets list` / `get` / `upload` / `delete` | Manage generated and uploaded assets |
+| `nolgia assets list` / `get` / `upload` / `delete` / `tag` | Manage generated and uploaded assets, including tags |
+| `nolgia characters list` / `get` / `create` / `update` / `delete` | Reusable characters with reference images |
+| `nolgia projects list` / `get` / `create` / `update` / `delete` / `add-assets` / `remove-asset` | Group assets into projects |
 | `nolgia models list` / `get` | Live model catalog, capabilities, credit pricing |
 | `nolgia account` / `billing` | Usage, credits, and billing portal links |
 | `nolgia pat create` / `list` / `revoke` | Personal access tokens for API use |
