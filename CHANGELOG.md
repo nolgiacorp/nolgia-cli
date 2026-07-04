@@ -3,6 +3,17 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.2
+
+- **New install paths** — `npm install -g @nolgia/cli` and a shell installer
+  (`curl -fsSL https://raw.githubusercontent.com/nolgiacorp/nolgia-cli/main/install.sh | bash`)
+  alongside Homebrew, crates.io, and prebuilt binaries.
+- **Daily update check** — the CLI prints a once-a-day upgrade hint matched
+  to how it was installed (suppressed for `--json`, pipes, CI, agents, and
+  `NOLGIA_NO_UPDATE_CHECK`).
+- **Image-input capability** — `nolgia models list|get` now surface which
+  video models accept a start image (`gen video --input`).
+
 ## v0.2.1
 
 - **`nolgia assets upload <file>`** — upload a png/jpeg/webp once and get a
