@@ -192,7 +192,11 @@ If the applicable pool can't cover a generation the API returns `402 Payment Req
 | `nolgia gen video --prompt <p> [--shot "S:P\|A"]... [--input <file\|uuid>] [--duration-seconds N] [--aspect-ratio R] [--generate-audio true] [--seed N] [--negative-prompt <p>] [--cost-only] [--no-wait]` | Generate video: multi-shot, image-to-video, native audio, cost estimate |
 | `nolgia models list [--modality m]` / `get <id>` | Live model catalog with pricing and capabilities |
 | `nolgia status <job-id>` / `wait <job-id> [--timeout <s>]` | Job status; block until finished |
-| `nolgia assets list [--limit N] [--modality m]` / `get <id> [--out <file>]` / `delete <id>` | List, inspect/download, delete assets |
+| `nolgia assets list [--limit N] [--modality m] [--tag <t>] [--project-id <id>]` / `get <id> [--out <file>]` / `delete <id>` | List (with tag/project filters), inspect/download, delete assets |
+| `nolgia assets tag <id> --tag <t>...` (or `--clear`) | Replace an asset's full tag set (repeat `--tag`; `--clear` removes all) |
+| `nolgia characters list` / `get <id>` / `create --name <n> [--description <d>] [--reference-asset-id <id>]...` / `update <id> [--name] [--description] [--reference-asset-id ...]` / `delete <id>` | Reusable characters with up to 4 reference images |
+| `nolgia projects list` / `get <id>` / `create --name <n> [--description <d>]` / `update <id> [--name] [--description]` / `delete <id>` | Group assets into projects |
+| `nolgia projects add-assets <id> --asset-id <id>...` / `remove-asset <id> <asset-id>` | Add/remove project members (assets themselves are never deleted) |
 | `nolgia skills list` / `show <name>` / `install [--target t]` | Bundled AI-agent skills |
 | `nolgia account me` / `usage` | Identity; job and asset counts |
 | `nolgia billing subscription` / `credits` / `portal` | Plan status, credit pools, Stripe portal link |
