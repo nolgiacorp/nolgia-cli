@@ -751,6 +751,149 @@ fn account_help_lists_subcommands() {
         .stdout(predicate::str::contains("usage"));
 }
 
+#[tokio::test]
+async fn skill_list_shows_marketplace_catalog() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/skills"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([skill_json("public", true)])))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["skill", "list"])
+        .stdout(predicate::str::contains("nolgia-cli-basics"))
+        .stdout(predicate::str::contains("v1.0.0"));
+}
+
+#[tokio::test]
+async fn skill_list_marks_private_skills() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/skills"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!([skill_json("private", true)])),
+        )
+        .mount(&api)
+        .await;
+    run_ok(&api, &["skill", "list"]).stdout(predicate::str::contains("[private]"));
+}
+
+#[tokio::test]
+async fn skill_install_reports_pod_delivery() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/agent/skills/nolgia-cli-basics"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({
+            "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics", "description": "d",
+            "latest_version": "1.0.0", "installed_at": "2026-06-13T00:00:00Z"
+        })))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["skill", "install", "nolgia-cli-basics"]).stdout(predicate::str::contains(
+        "installed nolgia-cli-basics v1.0.0",
+    ));
+}
+
+#[tokio::test]
+async fn skill_sync_materializes_installed_skills() {
+    use base64::Engine as _;
+    // Build a tiny skill tarball to serve as content.
+    let targz = {
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut builder = tar::Builder::new(encoder);
+        let body = b"---\nname: nolgia-cli-basics\n---\n";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(body.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        builder
+            .append_data(&mut header, "SKILL.md", &body[..])
+            .unwrap();
+        builder.into_inner().unwrap().finish().unwrap()
+    };
+
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/agent/skills"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+            "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics", "description": "d",
+            "latest_version": "1.0.0", "installed_at": "2026-06-13T00:00:00Z"
+        }])))
+        .mount(&api)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/skills/nolgia-cli-basics/content"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "slug": "nolgia-cli-basics", "version": "1.0.0", "manifest": {},
+            "content_base64": base64::engine::general_purpose::STANDARD.encode(&targz)
+        })))
+        .mount(&api)
+        .await;
+
+    let dir = tempfile::tempdir().unwrap();
+    run_ok(
+        &api,
+        &["skill", "sync", "--dir", dir.path().to_str().unwrap()],
+    )
+    .stdout(predicate::str::contains(
+        "synced   nolgia-cli-basics v1.0.0",
+    ));
+    assert!(dir.path().join("nolgia-cli-basics/SKILL.md").is_file());
+    assert!(
+        dir.path()
+            .join("nolgia-cli-basics/.nolgia-skill.json")
+            .is_file()
+    );
+
+    // Second sync is a no-op ("current"), driven by the version marker.
+    run_ok(
+        &api,
+        &["skill", "sync", "--dir", dir.path().to_str().unwrap()],
+    )
+    .stdout(predicate::str::contains(
+        "current  nolgia-cli-basics v1.0.0",
+    ));
+}
+
+#[tokio::test]
+async fn skill_publish_sends_manifest_and_content() {
+    let pkg = tempfile::tempdir().unwrap();
+    std::fs::write(
+        pkg.path().join("skill.json"),
+        json!({
+            "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics", "version": "1.0.0",
+            "description": "CLI basics", "required_env": ["NOLGIA_TOKEN"],
+            "min_tier": "", "visibility": "public", "credit_cost_hint": "free"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(
+        pkg.path().join("SKILL.md"),
+        "---\nname: nolgia-cli-basics\n---\n",
+    )
+    .unwrap();
+
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/skills"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(skill_json("public", true)))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["skill", "publish", pkg.path().to_str().unwrap()]).stdout(
+        predicate::str::contains("published nolgia-cli-basics v1.0.0 (public, min_tier: free)"),
+    );
+}
+
+fn skill_json(visibility: &str, entitled: bool) -> serde_json::Value {
+    json!({
+        "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics",
+        "description": "Drive the platform with the nolgia CLI", "required_env": ["NOLGIA_TOKEN"],
+        "credit_cost_hint": "free", "min_tier": "", "visibility": visibility, "entitled": entitled,
+        "latest_version": "1.0.0",
+        "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
+    })
+}
+
 fn cmd() -> Command {
     let mut command = Command::cargo_bin("nolgia").unwrap();
     command.env_remove("NOLGIA_TOKEN");
