@@ -44,6 +44,10 @@ tags:
     description: Subscription state and Stripe Customer Portal.
   - name: PAT
     description: Personal Access Token issuance and revocation.
+  - name: Agent
+    description: Per-customer Hermes agent provisioning, usage, and chat relay.
+  - name: Skills
+    description: Marketplace of admin-published skill packages that customer Hermes agents install and run.
   - name: Health
     description: Service health probes.
 
@@ -1031,6 +1035,343 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /agent:
+    get:
+      tags: [Agent]
+      operationId: getAgent
+      summary: Get the current user's Hermes agent, if provisioned.
+      responses:
+        '200':
+          description: The user's agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Agent]
+      operationId: provisionAgent
+      summary: Provision the current user's Hermes agent (one per account; requires an active subscription).
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProvisionAgentRequest'
+      responses:
+        '201':
+          description: Agent provisioned (deployment is asynchronous; status starts as `pending_deploy`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Agent]
+      operationId: deprovisionAgent
+      summary: Deprovision the current user's Hermes agent and revoke its access token.
+      responses:
+        '204':
+          description: Agent deprovisioned.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/usage:
+    get:
+      tags: [Agent]
+      operationId: getAgentUsage
+      summary: Credits spent and jobs created by the current user's agent.
+      responses:
+        '200':
+          description: Aggregated agent usage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentUsage'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/chat:
+    post:
+      tags: [Agent]
+      operationId: sendAgentChatMessage
+      summary: Relay a chat message to the user's deployed Hermes agent and return its reply.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentChatRequest'
+      responses:
+        '200':
+          description: Agent reply.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentChatResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/skills:
+    get:
+      tags: [Skills]
+      operationId: listAgentSkills
+      summary: List the skills installed for the current user's agent.
+      responses:
+        '200':
+          description: Installed skills, newest install first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AgentInstalledSkill'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/skills/{slug}:
+    post:
+      tags: [Skills]
+      operationId: installAgentSkill
+      summary: Install a published skill for the current user's agent (applied on the next skill sync). Requires the skill's entitlement (`min_tier`).
+      parameters:
+        - $ref: '#/components/parameters/SkillSlug'
+      responses:
+        '201':
+          description: Skill installed for the agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentInstalledSkill'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    delete:
+      tags: [Skills]
+      operationId: uninstallAgentSkill
+      summary: Uninstall a skill from the current user's agent.
+      parameters:
+        - $ref: '#/components/parameters/SkillSlug'
+      responses:
+        '204':
+          description: Skill uninstalled.
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /skills:
+    get:
+      tags: [Skills]
+      operationId: listSkills
+      summary: List published marketplace skills (metadata only — content is never included in listings). Customers see the public catalog; admin accounts also see private skills.
+      responses:
+        '200':
+          description: Published skills.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+    post:
+      tags: [Skills]
+      operationId: publishSkill
+      summary: Publish a new skill version (admin only; upserts the skill by slug, versions are immutable).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PublishSkillRequest'
+      responses:
+        '201':
+          description: Skill version published.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '409':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /skills/{slug}:
+    get:
+      tags: [Skills]
+      operationId: getSkill
+      summary: Get a published skill's detail.
+      parameters:
+        - $ref: '#/components/parameters/SkillSlug'
+      responses:
+        '200':
+          description: The skill.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /skills/{slug}/content:
+    get:
+      tags: [Skills]
+      operationId: getSkillContent
+      summary: Download the latest published version's package content (base64 tar.gz). Entitlement-gated — the caller's subscription must satisfy the skill's `min_tier`.
+      parameters:
+        - $ref: '#/components/parameters/SkillSlug'
+      responses:
+        '200':
+          description: Latest version content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillContent'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '402':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /internal/agents:
+    get:
+      tags: [Agent]
+      operationId: listAgentsInternal
+      summary: List agents, optionally filtered by status. Deploy-pipeline only.
+      security:
+        - provisionerAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AgentStatus'
+      responses:
+        '200':
+          description: Agents matching the filter.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Agent'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /internal/agents/{id}/credentials:
+    post:
+      tags: [Agent]
+      operationId: issueAgentCredentials
+      summary: Mint (or rotate) an agent's NOLGIA_TOKEN. Deploy-pipeline only; plaintext is returned ONCE.
+      security:
+        - provisionerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      responses:
+        '201':
+          description: Agent token minted. Any previous agent token is revoked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentCredentials'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /internal/agents/{id}/deployment:
+    put:
+      tags: [Agent]
+      operationId: updateAgentDeployment
+      summary: Report deployment state (status, chat endpoint) for an agent. Deploy-pipeline only.
+      security:
+        - provisionerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AgentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAgentDeploymentRequest'
+      responses:
+        '200':
+          description: Updated agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Agent'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
 components:
 
   securitySchemes:
@@ -1044,6 +1385,11 @@ components:
       scheme: bearer
       bearerFormat: PAT
       description: Personal Access Token (prefix `nol_`) for CLI and MCP clients.
+    provisionerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: Static shared secret (`AGENT_PROVISIONER_TOKEN`) for the internal agent deploy pipeline.
 
   parameters:
     Limit:
@@ -1081,6 +1427,24 @@ components:
       schema:
         type: string
         format: uuid
+    AgentId:
+      name: id
+      in: path
+      required: true
+      description: Agent UUID.
+      schema:
+        type: string
+        format: uuid
+
+    SkillSlug:
+      name: slug
+      in: path
+      required: true
+      description: Skill slug (lowercase letters, digits, hyphens).
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
+        examples: ['short-film']
 
   responses:
     ProblemResponse:
@@ -1560,6 +1924,8 @@ components:
     JobStatus:
       type: string
       enum: [queued, running, succeeded, failed, canceled]
+      # Pin generated Go constant names (see SubscriptionStatus note).
+      x-enum-varnames: [JobStatusQueued, JobStatusRunning, JobStatusSucceeded, JobStatusFailed, JobStatusCanceled]
 
     Job:
       type: object
@@ -1665,6 +2031,11 @@ components:
           type: number
           nullable: true
           minimum: 0
+        thumbnail_url:
+          type: string
+          format: uri
+          nullable: true
+          description: Time-limited signed URL for a server-generated thumbnail (image downscale or video poster frame). Null when the asset has no thumbnail.
         tags:
           type: array
           maxItems: 10
@@ -1883,10 +2254,25 @@ components:
     SubscriptionTier:
       type: string
       enum: [starter, pro, studio, studio_min, studio_mid, studio_max]
+      # Pin generated Go constant names; without this, adding sibling enums
+      # (e.g. the skill min_tier enum) shifts oapi-codegen's collision-based
+      # prefixing and renames these.
+      x-enum-varnames: [Starter, Pro, Studio, StudioMin, StudioMid, StudioMax]
 
     SubscriptionStatus:
       type: string
       enum: [trialing, active, past_due, canceled, incomplete, incomplete_expired, unpaid, paused]
+      # Pin generated Go constant names; without this, adding sibling enums
+      # shifts oapi-codegen's collision-based prefixing and renames these.
+      x-enum-varnames:
+        - SubscriptionStatusTrialing
+        - SubscriptionStatusActive
+        - SubscriptionStatusPastDue
+        - SubscriptionStatusCanceled
+        - SubscriptionStatusIncomplete
+        - SubscriptionStatusIncompleteExpired
+        - SubscriptionStatusUnpaid
+        - SubscriptionStatusPaused
 
     Subscription:
       type: object
@@ -2095,6 +2481,259 @@ components:
           type: string
           description: Full plaintext token. Returned ONCE; store it securely.
           examples: ['nol_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6']
+
+    AgentStatus:
+      type: string
+      enum: [pending_deploy, running, deprovisioned]
+      # Explicit Go constant names keep sibling enums' generated identifiers
+      # stable (oapi-codegen only prefixes constants on cross-enum collisions).
+      x-enum-varnames: [AgentStatusPendingDeploy, AgentStatusRunning, AgentStatusDeprovisioned]
+      description: Lifecycle of a customer's Hermes agent deployment.
+
+    Agent:
+      type: object
+      additionalProperties: false
+      required: [id, name, status, release_name, namespace, gnosis_tenant_id, chat_connected, auto_provisioned, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          examples: ['Hermes']
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        release_name:
+          type: string
+          description: Helm release name (and namespace) for the agent's cluster deployment.
+          examples: ['cust-a1b2c3d4']
+        namespace:
+          type: string
+          description: Kubernetes namespace the agent is deployed into.
+        gnosis_tenant_id:
+          type: string
+          description: Gnosis memory tenant that isolates this agent's long-term memory.
+        chat_connected:
+          type: boolean
+          description: Whether the deploy pipeline has reported a live chat endpoint for this agent.
+        auto_provisioned:
+          type: boolean
+          description: True when the agent was pre-provisioned automatically for a top-tier plan.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deprovisioned_at:
+          type: string
+          nullable: true
+          format: date-time
+
+    ProvisionAgentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Display name for the agent. Defaults to "Hermes".
+        auto_provisioned:
+          type: boolean
+          description: Set by the web app when pre-provisioning for top-tier plans.
+
+    AgentUsage:
+      type: object
+      additionalProperties: false
+      required: [credits_spent, jobs_total, recent_jobs]
+      properties:
+        credits_spent:
+          type: integer
+          description: Total credits consumed by generations the agent's token created.
+        jobs_total:
+          type: integer
+          description: Number of jobs created with the agent's token.
+        recent_jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+
+    AgentChatRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 8000
+
+    AgentChatResponse:
+      type: object
+      additionalProperties: false
+      required: [reply]
+      properties:
+        reply:
+          type: string
+          description: The agent's reply text.
+
+    AgentCredentials:
+      type: object
+      additionalProperties: false
+      required: [token, token_prefix]
+      properties:
+        token:
+          type: string
+          description: Full plaintext agent token (NOLGIA_TOKEN). Returned ONCE; place it in Vault.
+          examples: ['nol_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6']
+        token_prefix:
+          type: string
+          description: Display prefix of the agent token.
+          examples: ['nol_a1b2c3d4']
+
+    SkillVisibility:
+      type: string
+      enum: [public, private]
+      x-enum-varnames: [SkillVisibilityPublic, SkillVisibilityPrivate]
+      description: Audience of a skill. `public` skills appear in the customer catalog; `private` skills are invisible to non-admin callers (listings omit them, direct reads 404) and their content is only obtainable by admin accounts.
+
+    Skill:
+      type: object
+      additionalProperties: false
+      required: [slug, name, description, required_env, credit_cost_hint, min_tier, visibility, entitled, latest_version, created_at, updated_at]
+      properties:
+        slug:
+          type: string
+          description: Marketplace identity of the skill; also the install directory name under `$HERMES_HOME/skills/`.
+          examples: ['short-film']
+        name:
+          type: string
+          examples: ['Short Film Production']
+        description:
+          type: string
+        required_env:
+          type: array
+          items:
+            type: string
+          description: Environment variables the skill expects on the agent pod.
+          examples: [['NOLGIA_TOKEN', 'NOLGIA_API_URL']]
+        credit_cost_hint:
+          type: string
+          description: Free-text hint of how the skill spends credits.
+        min_tier:
+          type: string
+          description: Minimum subscription tier required to install or download this skill's content. Empty means free for any account.
+          examples: ['studio_min']
+        visibility:
+          $ref: '#/components/schemas/SkillVisibility'
+        entitled:
+          type: boolean
+          description: Whether the calling account may download this skill's content (subscription satisfies `min_tier`, or admin). Listings are metadata-only; content download is refused (402) when false.
+        latest_version:
+          type: string
+          description: Latest published semver version.
+          examples: ['1.0.0']
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    SkillContent:
+      type: object
+      additionalProperties: false
+      required: [slug, version, manifest, content_base64]
+      properties:
+        slug:
+          type: string
+        version:
+          type: string
+          description: The version this content belongs to (the latest published version).
+        manifest:
+          type: object
+          description: The `skill.json` manifest captured at publish time.
+        content_base64:
+          type: string
+          description: Base64-encoded tar.gz of the skill package directory.
+
+    AgentInstalledSkill:
+      type: object
+      additionalProperties: false
+      required: [slug, name, description, latest_version, installed_at]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        latest_version:
+          type: string
+          description: Latest published version; installs always follow latest (no pinning in v1).
+        installed_at:
+          type: string
+          format: date-time
+
+    PublishSkillRequest:
+      type: object
+      additionalProperties: false
+      required: [slug, name, version, content_base64]
+      properties:
+        slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
+          examples: ['short-film']
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        version:
+          type: string
+          description: Semver version; must be new for this slug (versions are immutable).
+          pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+          examples: ['1.0.0']
+        description:
+          type: string
+          maxLength: 4000
+        required_env:
+          type: array
+          items:
+            type: string
+        credit_cost_hint:
+          type: string
+          maxLength: 500
+        min_tier:
+          type: string
+          enum: ['', starter, pro, studio, studio_min, studio_mid, studio_max]
+          x-enum-varnames: [SkillTierFree, SkillTierStarter, SkillTierPro, SkillTierStudio, SkillTierStudioMin, SkillTierStudioMid, SkillTierStudioMax]
+          description: Minimum subscription tier required to install/download the skill. Empty (default) means free.
+        visibility:
+          $ref: '#/components/schemas/SkillVisibility'
+        manifest:
+          type: object
+          description: The full `skill.json` manifest, stored verbatim with the version.
+        content_base64:
+          type: string
+          description: Base64-encoded tar.gz of the skill package directory (max 5 MiB decoded).
+
+    UpdateAgentDeploymentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        status:
+          $ref: '#/components/schemas/AgentStatus'
+        chat_endpoint:
+          type: string
+          nullable: true
+          format: uri
+          description: In-cluster base URL of the hermes gateway API for this agent.
+          examples: ['http://cust-a1b2c3d4-api.cust-a1b2c3d4.svc.cluster.local:8642']
+        chat_api_key:
+          type: string
+          nullable: true
+          description: API key (API_SERVER_KEY) the relay uses to call the hermes gateway.
 
     DeviceAuthRequest:
       type: object

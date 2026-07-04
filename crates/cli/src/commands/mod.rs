@@ -6,6 +6,7 @@ pub mod r#gen;
 pub mod models;
 pub mod pat;
 pub mod projects;
+pub mod skill;
 pub mod skills;
 pub mod status;
 pub mod wait;

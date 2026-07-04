@@ -27,6 +27,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 uuid.workspace = true
+tar = "0.4"
+flate2 = "1"
 
 [dev-dependencies]
 assert_cmd = "2"
