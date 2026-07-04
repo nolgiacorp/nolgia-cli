@@ -226,9 +226,19 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
-          # cargo waits for the client to land in the index before the cli publish resolves it
-          cargo publish -p nolgia-client --locked
-          cargo publish -p nolgia-cli --locked
+          # cargo waits for the client to land in the index before the cli publish
+          # resolves it. Already-published versions are skipped so a partial
+          # release (e.g. a crates.io name cooldown) can be re-run safely.
+          for crate in nolgia-client nolgia-cli; do
+            if out=$(cargo publish -p "$crate" --locked 2>&1); then
+              echo "$out"
+            elif echo "$out" | grep -qi "already uploaded\|already exists"; then
+              echo "$crate version already on crates.io; skipping"
+            else
+              echo "$out" >&2
+              exit 1
+            fi
+          done
 
   publish-npm:
     name: Publish to npm

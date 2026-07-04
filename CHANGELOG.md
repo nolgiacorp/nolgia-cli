@@ -3,6 +3,14 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.3
+
+- Full package documentation on the npm registry page for `@nolgia/cli`
+- The crates.io publish step now skips versions that are already
+  uploaded, so partial releases can be re-run safely
+- First crates.io publish of the `nolgia-cli` binary crate (the name
+  had a reuse cooldown during the v0.2.2 release)
+
 ## v0.2.2
 
 - **New install paths** — `npm install -g @nolgia/cli` and a shell installer
