@@ -247,6 +247,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # OIDC for npm Trusted Publishing. Inert until a trusted publisher is
+      # linked for @nolgia/cli on npmjs.com; once linked, npm publishes
+      # tokenless via OIDC and NPM_TOKEN can be revoked.
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -256,6 +260,9 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+
+      - name: Upgrade npm for OIDC trusted publishing
+        run: npm install -g npm@^11.5.1
 
       - name: Verify package version matches the tag
         run: |
@@ -273,8 +280,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${NODE_AUTH_TOKEN}" ]; then
-            echo "NPM_TOKEN secret not configured; skipping npm publish"
+          # Prefers OIDC Trusted Publishing (once linked on npmjs.com); until
+          # then falls back to NODE_AUTH_TOKEN. Skips only if neither is
+          # available, so a fork or an unconfigured repo does not hard-fail.
+          if [ -z "${NODE_AUTH_TOKEN}" ] && [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
+            echo "no npm auth available (neither NPM_TOKEN nor OIDC); skipping npm publish"
             exit 0
           fi
           npm publish --access public --ignore-scripts
