@@ -247,9 +247,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # OIDC for npm Trusted Publishing. Inert until a trusted publisher is
-      # linked for @nolgia/cli on npmjs.com; once linked, npm publishes
-      # tokenless via OIDC and NPM_TOKEN can be revoked.
+      # OIDC for npm Trusted Publishing: @nolgia/cli has a trusted publisher
+      # linked on npmjs.com (this repo + release.yml), so publishes are
+      # tokenless — GitHub mints a short-lived id-token npm verifies. No
+      # NPM_TOKEN secret exists.
       id-token: write
     steps:
       - name: Checkout repository
@@ -276,15 +277,11 @@ jobs:
 
       - name: Publish @nolgia/cli
         working-directory: npm
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          # Prefers OIDC Trusted Publishing (once linked on npmjs.com); until
-          # then falls back to NODE_AUTH_TOKEN. Skips only if neither is
-          # available, so a fork or an unconfigured repo does not hard-fail.
-          if [ -z "${NODE_AUTH_TOKEN}" ] && [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ]; then
-            echo "no npm auth available (neither NPM_TOKEN nor OIDC); skipping npm publish"
-            exit 0
-          fi
+          # Tokenless publish via npm Trusted Publishing (OIDC). Needs the
+          # trusted publisher linked on npmjs.com and id-token: write above;
+          # npm >= 11.5.1 detects the OIDC environment automatically and also
+          # attaches build provenance. No NODE_AUTH_TOKEN is set, so the
+          # empty-token .npmrc line that setup-node writes cannot shadow OIDC.
           npm publish --access public --ignore-scripts
