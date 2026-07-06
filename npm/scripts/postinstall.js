@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 
-const REPO = "nolgiacorp/nolgia-cli";
+const REPO = "nolgiainc/nolgia-cli";
 const VERSION = require("../package.json").version;
 
 function assetName() {

@@ -51,7 +51,7 @@ fn load_spec(
         let version = read_spec_version(version_file)?;
         let url = env::var("NOLGIA_OPENAPI_RELEASE_URL").unwrap_or_else(|_| {
             format!(
-                "https://github.com/nolgiacorp/nolgia-api/releases/download/v{version}/openapi.yaml"
+                "https://github.com/nolgiainc/nolgia-api/releases/download/v{version}/openapi.yaml"
             )
         });
         let response = reqwest::blocking::get(url)?;

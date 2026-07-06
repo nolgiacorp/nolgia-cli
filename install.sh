@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nolgia CLI installer
 #
-#   curl -fsSL https://raw.githubusercontent.com/nolgiacorp/nolgia-cli/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash
 #
 # Options:
 #   --prefix <dir>   install directory (default: /usr/local/bin if writable, else ~/.local/bin)
@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-REPO="nolgiacorp/nolgia-cli"
+REPO="nolgiainc/nolgia-cli"
 PREFIX=""
 TAG=""
 

@@ -3,6 +3,19 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.5
+
+- npm and crates.io publishing move to OIDC Trusted Publishing: releases
+  publish tokenlessly (with npm build provenance), and the `NPM_TOKEN`
+  and `CARGO_REGISTRY_TOKEN` secrets are retired.
+- Repository moved to the `nolgiainc` GitHub org. Install URLs, the
+  Homebrew tap (`nolgiainc/nolgia`), and the release/update endpoints now
+  point at `nolgiainc`; old `nolgiacorp` URLs redirect.
+
+## v0.2.4
+
+- `characters` and `projects` commands, and asset tagging (`assets tag`).
+
 ## v0.2.3
 
 - Full package documentation on the npm registry page for `@nolgia/cli`
@@ -14,7 +27,7 @@ the matching GitHub release.
 ## v0.2.2
 
 - **New install paths** — `npm install -g @nolgia/cli` and a shell installer
-  (`curl -fsSL https://raw.githubusercontent.com/nolgiacorp/nolgia-cli/main/install.sh | bash`)
+  (`curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash`)
   alongside Homebrew, crates.io, and prebuilt binaries.
 - **Daily update check** — the CLI prints a once-a-day upgrade hint matched
   to how it was installed (suppressed for `--json`, pipes, CI, agents, and
@@ -60,7 +73,7 @@ The multi-shot and agents release.
 
 ## v0.1.1
 
-First public release — available via Homebrew (`brew tap nolgiacorp/nolgia`),
+First public release — available via Homebrew (`brew tap nolgiainc/nolgia`),
 crates.io (`cargo install nolgia-cli`), and prebuilt binaries.
 
 - **Sign in from the terminal** — `nolgia auth login` runs a browser

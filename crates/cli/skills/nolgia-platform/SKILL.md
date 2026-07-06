@@ -14,7 +14,7 @@ NOLGIA generates images, video (with native audio), and audio/TTS through
 one API. Two ways in from an agent:
 
 - **CLI** (this skill's default): `nolgia` — add `--json` for machine
-  output. Install: `brew install nolgiacorp/nolgia/nolgia` or
+  output. Install: `brew install nolgiainc/nolgia/nolgia` or
   `cargo install nolgia-cli`.
 - **MCP**: `https://mcp.nolgia.ai` — tools `nolgia_text_to_image`,
   `nolgia_image_to_image`, `nolgia_text_to_video`, `nolgia_image_to_video`,

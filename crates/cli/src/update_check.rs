@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 const RELEASES_LATEST_URL: &str =
-    "https://api.github.com/repos/nolgiacorp/nolgia-cli/releases/latest";
+    "https://api.github.com/repos/nolgiainc/nolgia-cli/releases/latest";
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const EXIT_GRACE: Duration = Duration::from_millis(400);
@@ -184,13 +184,13 @@ fn upgrade_command_for(method: Option<&str>, exe_path: &str) -> String {
     match method {
         Some("npm") => "npm update -g @nolgia/cli".to_string(),
         Some("install.sh") => {
-            "curl -fsSL https://raw.githubusercontent.com/nolgiacorp/nolgia-cli/main/install.sh | bash".to_string()
+            "curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash".to_string()
         }
         _ if exe_path.contains(".cargo/bin") => "cargo install nolgia-cli".to_string(),
         _ if exe_path.contains("Cellar") || exe_path.contains("homebrew") => {
             "brew upgrade nolgia".to_string()
         }
-        _ => "curl -fsSL https://raw.githubusercontent.com/nolgiacorp/nolgia-cli/main/install.sh | bash".to_string(),
+        _ => "curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash".to_string(),
     }
 }
 

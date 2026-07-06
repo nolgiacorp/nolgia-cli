@@ -2,7 +2,7 @@
 
 Command line interface for the [Nolgia](https://nolgia.ai) generative media platform: images, video (including native multi-shot sequences), and audio from your terminal or from AI agents
 
-This package downloads the prebuilt `nolgia` binary for your platform during postinstall (macOS universal, Linux x86_64, Windows x86_64) and exposes it as `nolgia` on your PATH. The binary is the same one attached to each [GitHub release](https://github.com/nolgiacorp/nolgia-cli/releases)
+This package downloads the prebuilt `nolgia` binary for your platform during postinstall (macOS universal, Linux x86_64, Windows x86_64) and exposes it as `nolgia` on your PATH. The binary is the same one attached to each [GitHub release](https://github.com/nolgiainc/nolgia-cli/releases)
 
 ## Install
 
@@ -10,7 +10,7 @@ This package downloads the prebuilt `nolgia` binary for your platform during pos
 npm install -g @nolgia/cli
 ```
 
-Other install paths (Homebrew, cargo, curl installer, raw binaries) are covered in the [repository README](https://github.com/nolgiacorp/nolgia-cli#installation)
+Other install paths (Homebrew, cargo, curl installer, raw binaries) are covered in the [repository README](https://github.com/nolgiainc/nolgia-cli#installation)
 
 ## Quick start
 
@@ -65,7 +65,7 @@ Every command takes `--json` for machine-readable output, which is how agent pip
 | `NOLGIA_NO_UPDATE_CHECK` | Disable the once-daily update hint |
 | `NOLGIA_SURFACE` | Self-identify agent traffic |
 
-Full documentation, the OpenAPI-generated client, and the development guide live in the [repository](https://github.com/nolgiacorp/nolgia-cli). The platform itself is documented at [nolgia.ai](https://nolgia.ai)
+Full documentation, the OpenAPI-generated client, and the development guide live in the [repository](https://github.com/nolgiainc/nolgia-cli). The platform itself is documented at [nolgia.ai](https://nolgia.ai)
 
 ## License
 

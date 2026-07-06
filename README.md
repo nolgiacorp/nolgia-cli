@@ -1,7 +1,7 @@
 # Nolgia CLI
 
 [![Crates.io](https://img.shields.io/crates/v/nolgia-cli)](https://crates.io/crates/nolgia-cli)
-[![Release](https://github.com/nolgiacorp/nolgia-cli/actions/workflows/release.yml/badge.svg)](https://github.com/nolgiacorp/nolgia-cli/actions/workflows/release.yml)
+[![Release](https://github.com/nolgiainc/nolgia-cli/actions/workflows/release.yml/badge.svg)](https://github.com/nolgiainc/nolgia-cli/actions/workflows/release.yml)
 [![Downloads](https://img.shields.io/crates/d/nolgia-cli)](https://crates.io/crates/nolgia-cli)
 [![License](https://img.shields.io/crates/l/nolgia-cli)](#license)
 
@@ -24,7 +24,7 @@ $ nolgia gen video --prompt "A drone shot over a coastline" --no-wait
 ### Shell installer (macOS, Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/nolgiacorp/nolgia-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nolgiainc/nolgia-cli/main/install.sh | bash
 ```
 
 The installer picks /usr/local/bin when writable and ~/.local/bin otherwise; pass `--prefix <dir>` to choose and `--tag vX.Y.Z` to pin a release. On macOS it clears the quarantine attribute for you
@@ -40,11 +40,11 @@ The package downloads the prebuilt binary for your platform (macOS universal, Li
 ### Homebrew (macOS, Linux)
 
 ```bash
-brew tap nolgiacorp/nolgia
+brew tap nolgiainc/nolgia
 brew install nolgia
 ```
 
-Homebrew prompts once to trust third-party taps: `brew trust nolgiacorp/nolgia`.
+Homebrew prompts once to trust third-party taps: `brew trust nolgiainc/nolgia`.
 
 ### Cargo
 
@@ -56,7 +56,7 @@ Building from source requires the Rust 2024 toolchain; on Linux you also need `l
 
 ### Prebuilt binaries
 
-Download the binary for your platform from the [latest release](https://github.com/nolgiacorp/nolgia-cli/releases/latest) (macOS universal, Linux x86_64, Windows x86_64), rename it to `nolgia` (`nolgia.exe` on Windows), and place it on your `PATH`.
+Download the binary for your platform from the [latest release](https://github.com/nolgiainc/nolgia-cli/releases/latest) (macOS universal, Linux x86_64, Windows x86_64), rename it to `nolgia` (`nolgia.exe` on Windows), and place it on your `PATH`.
 
 ### Update check
 
