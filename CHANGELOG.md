@@ -3,6 +3,17 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.6
+
+- **Skill authoring in the CLI** — `nolgia skill init <slug>` scaffolds an
+  authoring directory (skill.json manifest, SKILL.md template, `payload/`
+  for code), and `nolgia skill pack <dir>` validates the manifest and
+  assembles the exact package layout `skill publish` consumes. Both work
+  offline; the loop is init -> pack -> publish.
+- Optional `python_requirements` manifest field (pip requirement strings)
+  is validated by `skill pack` and passed through to the marketplace on
+  publish.
+
 ## v0.2.5
 
 - npm and crates.io publishing move to OIDC Trusted Publishing: releases
