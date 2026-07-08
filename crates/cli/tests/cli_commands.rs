@@ -4,7 +4,7 @@ use serde_json::json;
 use uuid::Uuid;
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
-    matchers::{body_json, method, path, query_param},
+    matchers::{body_json, body_partial_json, method, path, query_param},
 };
 
 const JOB_ID: &str = "11111111-1111-4111-8111-111111111111";
@@ -882,6 +882,100 @@ async fn skill_publish_sends_manifest_and_content() {
     run_ok(&api, &["skill", "publish", pkg.path().to_str().unwrap()]).stdout(
         predicate::str::contains("published nolgia-cli-basics v1.0.0 (public, min_tier: free)"),
     );
+}
+
+#[test]
+fn skill_help_lists_authoring_verbs() {
+    cmd()
+        .args(["skill", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("init"))
+        .stdout(predicate::str::contains("pack"))
+        .stdout(predicate::str::contains("publish"));
+}
+
+#[tokio::test]
+async fn skill_init_pack_publish_roundtrip() {
+    let base = tempfile::tempdir().unwrap();
+    let authoring = base.path().join("my-skill");
+    let api = MockServer::start().await;
+
+    run_ok(
+        &api,
+        &[
+            "skill",
+            "init",
+            "my-skill",
+            "--dir",
+            authoring.to_str().unwrap(),
+        ],
+    )
+    .stdout(predicate::str::contains("nolgia skill pack"));
+
+    // Author the skill: drop code into payload/ and declare a pip dep.
+    std::fs::write(authoring.join("payload/tool.py"), "print('hi')\n").unwrap();
+    let manifest = std::fs::read_to_string(authoring.join("skill.json")).unwrap();
+    assert!(manifest.contains("\"python_requirements\": []"));
+    std::fs::write(
+        authoring.join("skill.json"),
+        manifest.replace(
+            "\"python_requirements\": []",
+            "\"python_requirements\": [\"requests>=2.31\"]",
+        ),
+    )
+    .unwrap();
+
+    let out = base.path().join("dist/my-skill");
+    run_ok(
+        &api,
+        &[
+            "skill",
+            "pack",
+            authoring.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ],
+    )
+    .stdout(predicate::str::contains("packed my-skill v0.1.0"))
+    .stdout(predicate::str::contains("tool.py"));
+    // Payload contents land at the package root, next to SKILL.md.
+    assert!(out.join("tool.py").is_file());
+    assert!(!out.join("payload").exists());
+
+    // The packed dir publishes as-is; python_requirements travels verbatim
+    // inside the manifest.
+    Mock::given(method("POST"))
+        .and(path("/v1/skills"))
+        .and(body_partial_json(json!({
+            "slug": "my-skill", "version": "0.1.0", "visibility": "private",
+            "manifest": { "python_requirements": ["requests>=2.31"] }
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(skill_json("private", true)))
+        .mount(&api)
+        .await;
+    run_ok(&api, &["skill", "publish", out.to_str().unwrap()])
+        .stdout(predicate::str::contains("published"));
+}
+
+#[test]
+fn skill_pack_rejects_bad_version() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("skill.json"),
+        json!({
+            "slug": "my-skill", "name": "My Skill", "version": "1.0",
+            "description": "d", "visibility": "private"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("SKILL.md"), "---\nname: my-skill\n---\n").unwrap();
+    cmd()
+        .args(["skill", "pack", dir.path().to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("version"));
 }
 
 fn skill_json(visibility: &str, entitled: bool) -> serde_json::Value {

@@ -58,7 +58,7 @@ pub enum Commands {
     Skills(skills::SkillsCommand),
     #[command(
         subcommand,
-        about = "Marketplace skills for your Hermes agent (list, install, sync, publish)"
+        about = "Marketplace skills for your Hermes agent (list, install, sync, init, pack, publish)"
     )]
     Skill(skill::SkillCommand),
     #[command(subcommand, about = "Live model catalog with capabilities and pricing")]
