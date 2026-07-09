@@ -3647,7 +3647,11 @@ components:
         meta:
           type: object
           nullable: true
-          description: Replaces the full meta object when provided (at most 64 KiB serialized).
+          description: >
+            JSON Merge Patch (RFC 7386) applied over the stored meta when provided:
+            nested objects are merged recursively, a provided key overwrites that
+            key's value, an explicit null deletes that key, and keys you omit are
+            preserved. The merged result must be at most 64 KiB serialized.
 
     CloneCompositionRequest:
       type: object
