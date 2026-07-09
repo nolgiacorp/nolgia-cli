@@ -45,6 +45,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Don't leave the checkout token as a git `extraheader`. peter-evans/
+          # create-pull-request pushes with its own token, and the persisted
+          # Authorization header collides with it — git then sends two and the
+          # remote rejects with `Duplicate header: "Authorization"` (HTTP 400).
+          persist-credentials: false
 
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
