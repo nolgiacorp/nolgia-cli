@@ -25,6 +25,7 @@ $ nolgia gen video --prompt "A drone shot over a coastline" --no-wait
 - [Examples](#examples)
 - [Models](#models)
 - [AI agents & skills](#ai-agents--skills)
+- [Marketplace abilities](#marketplace-abilities)
 - [Authentication](#authentication)
 - [Credits](#credits)
 - [Command reference](#command-reference)
@@ -164,6 +165,22 @@ Bundled: `nolgia-platform` (the full tool surface), `nolgia-video-prompting` (sh
 
 Also for agents: an **MCP server** at `https://mcp.nolgia.ai` (tools `nolgia_text_to_video`, `nolgia_text_to_image`, …, same params as the CLI flags), **PATs** for headless auth, `nolgia auth token` to extract the current bearer, and `--json` everywhere. The CLI identifies its calling surface (`X-Nolgia-Surface`: `claude-code`, `codex`, `hermes`, `cli`; override with `NOLGIA_SURFACE`) so agent traffic is first-class, not an afterthought.
 
+## Marketplace abilities
+
+Distinct from the bundled `skills` above: **Abilities** are marketplace items — registry-backed capabilities, published by Nolgia and served by the API (`/abilities`), that you add to *your* Hermes agent. Each is an `ability.json` manifest plus a `SKILL.md` (and an optional code payload). Where bundled `skills` are generic framework packs you install into any agent, an ability is a purchasable/entitled marketplace item installed against your account and materialized onto the agent's pod.
+
+```bash
+nolgia ability list                 # the marketplace catalog visible to your account
+nolgia ability show <slug>          # details for one ability
+nolgia ability installed            # what's installed for your account's agent
+nolgia ability install <slug>       # add it to your agent
+nolgia ability uninstall <slug>     # remove it
+nolgia ability sync [--dir <path>]  # materialize installed abilities into a skills dir
+                                    #   (default $HERMES_HOME/skills; what the pod runs on boot)
+```
+
+Authoring (admins publishing to the marketplace): `nolgia ability init <slug>` scaffolds an authoring dir (`ability.json`, `SKILL.md`, `payload/`), `nolgia ability pack <dir>` validates and assembles the package into `dist/<slug>`, and `nolgia ability publish dist/<slug>` ships it.
+
 ## Authentication
 
 Two ways to authenticate; every command accepts either.
@@ -210,7 +227,8 @@ If the applicable pool can't cover a generation the API returns `402 Payment Req
 | `nolgia characters list` / `get <id>` / `create --name <n> [--description <d>] [--reference-asset-id <id>]...` / `update <id> [--name] [--description] [--reference-asset-id ...]` / `delete <id>` | Reusable characters with up to 4 reference images |
 | `nolgia projects list` / `get <id>` / `create --name <n> [--description <d>]` / `update <id> [--name] [--description]` / `delete <id>` | Group assets into projects |
 | `nolgia projects add-assets <id> --asset-id <id>...` / `remove-asset <id> <asset-id>` | Add/remove project members (assets themselves are never deleted) |
-| `nolgia skills list` / `show <name>` / `install [--target t]` | Bundled AI-agent skills |
+| `nolgia skills list` / `show <name>` / `install [--target t]` | Bundled AI-agent skills (framework packs installed into an agent) |
+| `nolgia ability list` / `show <slug>` / `installed` / `install <slug>` / `uninstall <slug>` / `sync [--dir <path>]` / `init <slug>` / `pack <dir>` / `publish <dir>` | Marketplace **Abilities** for your Hermes agent (`ability.json` manifests, `/abilities` API); `init`/`pack`/`publish` are the admin authoring/publish loop |
 | `nolgia account me` / `usage` | Identity; job and asset counts |
 | `nolgia billing subscription` / `credits` / `portal` | Plan status, credit pools, Stripe portal link |
 | `nolgia pat create --name <n>` / `list` / `revoke <id>` | Manage personal access tokens |
