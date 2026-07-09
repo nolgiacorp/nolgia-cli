@@ -20,7 +20,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "syn
 uuid = { version = "1", features = ["serde", "v4"] }
 
 [workspace.package]
-version = "0.2.6"
+version = "0.2.7"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/nolgiainc/nolgia-cli"
