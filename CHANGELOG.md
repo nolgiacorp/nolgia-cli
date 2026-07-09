@@ -3,6 +3,21 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## Unreleased
+
+- **`nolgia skill` renamed to `nolgia ability`** — the marketplace command for
+  Hermes agents (`list`, `show`, `installed`, `install`, `uninstall`, `sync`,
+  `init`, `pack`, `publish`) now lives under `nolgia ability`, mirroring the
+  API's `/abilities` surface. The old `nolgia skill` command is **removed** with
+  no alias. The generated API client targets `/abilities` and `Ability*` types.
+- Ability packages use **`ability.json`** as the manifest — `ability init`
+  scaffolds it, and `ability pack`/`ability publish` read and emit it. The synced
+  install marker is now `.nolgia-ability.json`. (The on-disk install root stays
+  `$HERMES_HOME/skills/` and per-package instructions stay in `SKILL.md`, for
+  compatibility with existing agent pods.)
+- Unrelated: `nolgia skills` (the bundled AI-agent SKILL.md packs) is a separate
+  feature and is unchanged.
+
 ## v0.2.6
 
 - **Skill authoring in the CLI** — `nolgia skill init <slug>` scaffolds an

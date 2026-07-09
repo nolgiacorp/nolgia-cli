@@ -1,7 +1,7 @@
-//! Marketplace skills: registry-backed skills served by nolgia-api.
+//! Marketplace abilities: registry-backed abilities served by nolgia-api.
 //! Distinct from `nolgia skills` (SKILL.md packs bundled in the binary):
-//! marketplace skills are published by Nolgia, installed per agent, and
-//! materialized onto the agent pod by `nolgia skill sync` (or the chart's
+//! marketplace abilities are published by Nolgia, installed per agent, and
+//! materialized onto the agent pod by `nolgia ability sync` (or the chart's
 //! sync initContainer, which does the same thing).
 
 use anyhow::{Context, Result, bail};
@@ -9,8 +9,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::{Args, Subcommand};
 use nolgia_client::types::{
-    PublishSkillRequest, PublishSkillRequestMinTier, PublishSkillRequestName,
-    PublishSkillRequestSlug, PublishSkillRequestVersion, Skill, SkillVisibility,
+    Ability, AbilityVisibility, PublishAbilityRequest, PublishAbilityRequestMinTier,
+    PublishAbilityRequestName, PublishAbilityRequestSlug, PublishAbilityRequestVersion,
 };
 use std::{
     fs,
@@ -22,41 +22,45 @@ use crate::output::{OutputFormat, print_json};
 
 use super::CommandContext;
 
-/// Sync marker inside each materialized skill dir; records the synced
-/// version. Dirs without it (hand-authored skills) are never touched.
-const MARKER: &str = ".nolgia-skill.json";
+/// Sync marker inside each materialized ability dir; records the synced
+/// version. Dirs without it (hand-authored abilities) are never touched.
+const MARKER: &str = ".nolgia-ability.json";
+
+/// Package manifest filename. The marketplace identifies an ability package
+/// by its `ability.json`.
+const MANIFEST: &str = "ability.json";
 
 #[derive(Subcommand, Debug)]
-pub enum SkillCommand {
+pub enum AbilityCommand {
     /// List the marketplace catalog visible to this account
     List,
-    /// Show one marketplace skill
+    /// Show one marketplace ability
     Show(SlugArgs),
-    /// List skills installed for this account's agent
+    /// List abilities installed for this account's agent
     Installed,
-    /// Install a marketplace skill for this account's agent
+    /// Install a marketplace ability for this account's agent
     Install(SlugArgs),
-    /// Uninstall a marketplace skill from this account's agent
+    /// Uninstall a marketplace ability from this account's agent
     Uninstall(SlugArgs),
-    /// Materialize installed skills into a skills directory (what the agent
+    /// Materialize installed abilities into a skills directory (what the agent
     /// pod's initContainer runs on boot)
     Sync(SyncArgs),
-    /// Scaffold a new skill authoring directory (skill.json, SKILL.md,
+    /// Scaffold a new ability authoring directory (ability.json, SKILL.md,
     /// payload/)
     Init(InitArgs),
-    /// Validate a skill authoring directory and assemble the publishable
+    /// Validate an ability authoring directory and assemble the publishable
     /// package.
     ///
-    /// Copies skill.json + SKILL.md and the contents of payload/ (which land
+    /// Copies ability.json + SKILL.md and the contents of payload/ (which land
     /// at the package root, next to SKILL.md) into the output directory,
-    /// ready for `nolgia skill publish`. The optional manifest field
+    /// ready for `nolgia ability publish`. The optional manifest field
     /// `python_requirements` (an array of pip requirement strings) is passed
     /// through to the marketplace manifest verbatim.
     Pack(PackArgs),
-    /// Publish a skill package directory to the marketplace (admin only).
+    /// Publish an ability package directory to the marketplace (admin only).
     ///
-    /// The authoring loop is `skill init <slug>` to scaffold, `skill pack
-    /// <dir>` to validate and assemble, then `skill publish dist/<slug>`.
+    /// The authoring loop is `ability init <slug>` to scaffold, `ability pack
+    /// <dir>` to validate and assemble, then `ability publish dist/<slug>`.
     Publish(PublishArgs),
 }
 
@@ -75,7 +79,7 @@ pub struct SyncArgs {
 
 #[derive(Args, Debug)]
 pub struct InitArgs {
-    /// Skill slug: lowercase letters, digits, hyphens (max 64 chars)
+    /// Ability slug: lowercase letters, digits, hyphens (max 64 chars)
     pub slug: String,
     /// Directory to create (default: ./<slug>)
     #[arg(long)]
@@ -84,7 +88,7 @@ pub struct InitArgs {
 
 #[derive(Args, Debug)]
 pub struct PackArgs {
-    /// Skill authoring directory (from `nolgia skill init`)
+    /// Ability authoring directory (from `nolgia ability init`)
     pub dir: PathBuf,
     /// Output package directory (default: dist/<slug>)
     #[arg(long)]
@@ -93,38 +97,38 @@ pub struct PackArgs {
 
 #[derive(Args, Debug)]
 pub struct PublishArgs {
-    /// Skill package directory containing skill.json + SKILL.md
-    /// (assembled by `nolgia skill pack`)
+    /// Ability package directory containing ability.json + SKILL.md
+    /// (assembled by `nolgia ability pack`)
     pub dir: PathBuf,
 }
 
-pub async fn run(command: SkillCommand, ctx: &CommandContext) -> Result<()> {
+pub async fn run(command: AbilityCommand, ctx: &CommandContext) -> Result<()> {
     match command {
-        SkillCommand::List => list(ctx).await,
-        SkillCommand::Show(args) => show(args, ctx).await,
-        SkillCommand::Installed => installed(ctx).await,
-        SkillCommand::Install(args) => install(args, ctx).await,
-        SkillCommand::Uninstall(args) => uninstall(args, ctx).await,
-        SkillCommand::Sync(args) => sync(args, ctx).await,
-        SkillCommand::Init(args) => init(args, ctx),
-        SkillCommand::Pack(args) => pack(args, ctx),
-        SkillCommand::Publish(args) => publish(args, ctx).await,
+        AbilityCommand::List => list(ctx).await,
+        AbilityCommand::Show(args) => show(args, ctx).await,
+        AbilityCommand::Installed => installed(ctx).await,
+        AbilityCommand::Install(args) => install(args, ctx).await,
+        AbilityCommand::Uninstall(args) => uninstall(args, ctx).await,
+        AbilityCommand::Sync(args) => sync(args, ctx).await,
+        AbilityCommand::Init(args) => init(args, ctx),
+        AbilityCommand::Pack(args) => pack(args, ctx),
+        AbilityCommand::Publish(args) => publish(args, ctx).await,
     }
 }
 
 async fn list(ctx: &CommandContext) -> Result<()> {
-    let skills = ctx
+    let abilities = ctx
         .client()
-        .list_skills()
+        .list_abilities()
         .send()
         .await
-        .context("listing marketplace skills")?
+        .context("listing marketplace abilities")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&skills),
+        OutputFormat::Json => print_json(&abilities),
         OutputFormat::Text => {
-            for skill in &skills {
-                print_skill_line(skill);
+            for ability in &abilities {
+                print_ability_line(ability);
             }
             Ok(())
         }
@@ -132,30 +136,33 @@ async fn list(ctx: &CommandContext) -> Result<()> {
 }
 
 async fn show(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
-    let skill = ctx
+    let ability = ctx
         .client()
-        .get_skill()
+        .get_ability()
         .slug(&args.slug)
         .send()
         .await
-        .context("fetching skill")?
+        .context("fetching ability")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&skill),
+        OutputFormat::Json => print_json(&ability),
         OutputFormat::Text => {
-            println!("{} v{}  {}", skill.slug, skill.latest_version, skill.name);
-            println!("  {}", skill.description);
-            if !skill.min_tier.is_empty() {
+            println!(
+                "{} v{}  {}",
+                ability.slug, ability.latest_version, ability.name
+            );
+            println!("  {}", ability.description);
+            if !ability.min_tier.is_empty() {
                 println!(
                     "  requires plan: {} (entitled: {})",
-                    skill.min_tier, skill.entitled
+                    ability.min_tier, ability.entitled
                 );
             }
-            if !skill.credit_cost_hint.is_empty() {
-                println!("  credits: {}", skill.credit_cost_hint);
+            if !ability.credit_cost_hint.is_empty() {
+                println!("  credits: {}", ability.credit_cost_hint);
             }
-            if !skill.required_env.is_empty() {
-                println!("  env: {}", skill.required_env.join(", "));
+            if !ability.required_env.is_empty() {
+                println!("  env: {}", ability.required_env.join(", "));
             }
             Ok(())
         }
@@ -163,20 +170,20 @@ async fn show(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn installed(ctx: &CommandContext) -> Result<()> {
-    let skills = ctx
+    let abilities = ctx
         .client()
-        .list_agent_skills()
+        .list_agent_abilities()
         .send()
         .await
-        .context("listing installed skills")?
+        .context("listing installed abilities")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&skills),
+        OutputFormat::Json => print_json(&abilities),
         OutputFormat::Text => {
-            for skill in &skills {
+            for ability in &abilities {
                 println!(
                     "{:28} v{:10} {}",
-                    skill.slug, skill.latest_version, skill.name
+                    ability.slug, ability.latest_version, ability.name
                 );
             }
             Ok(())
@@ -185,20 +192,20 @@ async fn installed(ctx: &CommandContext) -> Result<()> {
 }
 
 async fn install(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
-    let skill = ctx
+    let ability = ctx
         .client()
-        .install_agent_skill()
+        .install_agent_ability()
         .slug(&args.slug)
         .send()
         .await
-        .context("installing skill")?
+        .context("installing ability")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&skill),
+        OutputFormat::Json => print_json(&ability),
         OutputFormat::Text => {
             println!(
-                "installed {} v{} — it lands on the agent pod on its next restart or `nolgia skill sync`",
-                skill.slug, skill.latest_version
+                "installed {} v{} — it lands on the agent pod on its next restart or `nolgia ability sync`",
+                ability.slug, ability.latest_version
             );
             Ok(())
         }
@@ -207,11 +214,11 @@ async fn install(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
 
 async fn uninstall(args: SlugArgs, ctx: &CommandContext) -> Result<()> {
     ctx.client()
-        .uninstall_agent_skill()
+        .uninstall_agent_ability()
         .slug(&args.slug)
         .send()
         .await
-        .context("uninstalling skill")?;
+        .context("uninstalling ability")?;
     match ctx.format() {
         OutputFormat::Json => print_json(&serde_json::json!({ "uninstalled": args.slug })),
         OutputFormat::Text => {
@@ -239,27 +246,27 @@ async fn sync(args: SyncArgs, ctx: &CommandContext) -> Result<()> {
 
     let installed = ctx
         .client()
-        .list_agent_skills()
+        .list_agent_abilities()
         .send()
         .await
-        .context("listing installed skills")?
+        .context("listing installed abilities")?
         .into_inner();
 
     let mut results = Vec::new();
-    for skill in &installed {
-        let dir = root.join(&skill.slug);
-        if marker_version(&dir).as_deref() == Some(skill.latest_version.as_str()) {
+    for ability in &installed {
+        let dir = root.join(&ability.slug);
+        if marker_version(&dir).as_deref() == Some(ability.latest_version.as_str()) {
             results.push(SyncResult {
-                slug: skill.slug.clone(),
-                version: skill.latest_version.clone(),
+                slug: ability.slug.clone(),
+                version: ability.latest_version.clone(),
                 action: "current",
             });
             continue;
         }
         let content = match ctx
             .client()
-            .get_skill_content()
-            .slug(&skill.slug)
+            .get_ability_content()
+            .slug(&ability.slug)
             .send()
             .await
         {
@@ -267,10 +274,10 @@ async fn sync(args: SyncArgs, ctx: &CommandContext) -> Result<()> {
             Err(err) => {
                 // Entitlement/visibility is enforced server-side per download;
                 // skip rather than fail the whole sync.
-                eprintln!("skipping {}: {}", skill.slug, err);
+                eprintln!("skipping {}: {}", ability.slug, err);
                 results.push(SyncResult {
-                    slug: skill.slug.clone(),
-                    version: skill.latest_version.clone(),
+                    slug: ability.slug.clone(),
+                    version: ability.latest_version.clone(),
                     action: "skipped",
                 });
                 continue;
@@ -278,10 +285,10 @@ async fn sync(args: SyncArgs, ctx: &CommandContext) -> Result<()> {
         };
         let raw = BASE64
             .decode(&content.content_base64)
-            .with_context(|| format!("decoding content for {}", skill.slug))?;
-        materialize(&root, &skill.slug, &content.version, &raw)?;
+            .with_context(|| format!("decoding content for {}", ability.slug))?;
+        materialize(&root, &ability.slug, &content.version, &raw)?;
         results.push(SyncResult {
-            slug: skill.slug.clone(),
+            slug: ability.slug.clone(),
             version: content.version.clone(),
             action: "synced",
         });
@@ -298,7 +305,7 @@ async fn sync(args: SyncArgs, ctx: &CommandContext) -> Result<()> {
             && let Some(version) = marker_version(&dir)
         {
             fs::remove_dir_all(&dir)
-                .with_context(|| format!("removing stale skill {}", dir.display()))?;
+                .with_context(|| format!("removing stale ability {}", dir.display()))?;
             results.push(SyncResult {
                 slug: name,
                 version,
@@ -313,7 +320,7 @@ async fn sync(args: SyncArgs, ctx: &CommandContext) -> Result<()> {
             for r in &results {
                 println!("{:8} {} v{}", r.action, r.slug, r.version);
             }
-            println!("skills dir: {}", root.display());
+            println!("abilities dir: {}", root.display());
             Ok(())
         }
     }
@@ -325,7 +332,7 @@ fn marker_version(dir: &Path) -> Option<String> {
     Some(value.get("version")?.as_str()?.to_string())
 }
 
-/// Extract a skill tarball into a staging dir and atomically swap it in.
+/// Extract an ability tarball into a staging dir and atomically swap it in.
 fn materialize(root: &Path, slug: &str, version: &str, targz: &[u8]) -> Result<()> {
     let staging = root.join(format!(".{slug}.syncing"));
     let _ = fs::remove_dir_all(&staging);
@@ -353,10 +360,10 @@ fn materialize(root: &Path, slug: &str, version: &str, targz: &[u8]) -> Result<(
 
 // --- init / pack (authoring) ---------------------------------------------
 
-/// Server-side decoded package size limit (skill_versions.content).
+/// Server-side decoded package size limit (ability_versions.content).
 const MAX_PACKAGE_BYTES: u64 = 5 * 1024 * 1024;
 
-/// Server-side slug rule (PublishSkillRequest.slug: ^[a-z0-9][a-z0-9-]{0,63}$).
+/// Server-side slug rule (PublishAbilityRequest.slug: ^[a-z0-9][a-z0-9-]{0,63}$).
 fn is_valid_slug(slug: &str) -> bool {
     (1..=64).contains(&slug.len())
         && slug
@@ -365,7 +372,7 @@ fn is_valid_slug(slug: &str) -> bool {
             .all(|(i, b)| b.is_ascii_lowercase() || b.is_ascii_digit() || (i > 0 && b == b'-'))
 }
 
-/// Server-side version rule (PublishSkillRequest.version: ^[0-9]+\.[0-9]+\.[0-9]+$).
+/// Server-side version rule (PublishAbilityRequest.version: ^[0-9]+\.[0-9]+\.[0-9]+$).
 fn is_valid_version(version: &str) -> bool {
     let numeric =
         |part: &&str| -> bool { !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()) };
@@ -402,13 +409,15 @@ fn init(args: InitArgs, ctx: &CommandContext) -> Result<()> {
         OutputFormat::Text => {
             println!("initialized {} at {}", result.slug, result.dir.display());
             println!(
-                "  skill.json  marketplace manifest — fill in description/visibility/min_tier"
+                "  ability.json  marketplace manifest — fill in description/visibility/min_tier"
             );
-            println!("  SKILL.md    agent-facing instructions (frontmatter + body)");
-            println!("  payload/    optional code; packaged at the skill root next to SKILL.md");
+            println!("  SKILL.md      agent-facing instructions (frontmatter + body)");
+            println!(
+                "  payload/      optional code; packaged at the ability root next to SKILL.md"
+            );
             println!();
-            println!("next: edit skill.json + SKILL.md, add code under payload/, then");
-            println!("  nolgia skill pack {}", result.dir.display());
+            println!("next: edit ability.json + SKILL.md, add code under payload/, then");
+            println!("  nolgia ability pack {}", result.dir.display());
             Ok(())
         }
     }
@@ -427,14 +436,14 @@ fn scaffold(slug: &str, dir: &Path) -> Result<InitResult> {
     fs::create_dir_all(dir.join("payload"))
         .with_context(|| format!("creating {}", dir.display()))?;
     let name = title_case(slug);
-    fs::write(dir.join("skill.json"), manifest_template(slug, &name))?;
+    fs::write(dir.join(MANIFEST), manifest_template(slug, &name))?;
     fs::write(dir.join("SKILL.md"), skill_md_template(slug, &name))?;
     fs::write(dir.join("payload").join(".gitkeep"), "")?;
     Ok(InitResult {
         slug: slug.to_string(),
         dir: dir.to_path_buf(),
         files: vec![
-            "skill.json".into(),
+            MANIFEST.into(),
             "SKILL.md".into(),
             "payload/.gitkeep".into(),
         ],
@@ -447,9 +456,9 @@ fn manifest_template(slug: &str, name: &str) -> String {
   "slug": "{slug}",
   "name": "{name}",
   "version": "0.1.0",
-  "description": "TODO: one paragraph shown in the marketplace catalog — what the skill does and when to install it.",
+  "description": "TODO: one paragraph shown in the marketplace catalog — what the ability does and when to install it.",
   "required_env": ["NOLGIA_TOKEN", "NOLGIA_API_URL"],
-  "credit_cost_hint": "TODO: how this skill spends credits (or note that it is free to use).",
+  "credit_cost_hint": "TODO: how this ability spends credits (or note that it is free to use).",
   "min_tier": "",
   "visibility": "private",
   "python_requirements": []
@@ -464,7 +473,7 @@ fn skill_md_template(slug: &str, name: &str) -> String {
 name: {slug}
 description: |
   TODO: one or two sentences the agent uses to decide when to reach for this
-  skill — what it does and the trigger situations.
+  ability — what it does and the trigger situations.
 version: 0.1.0
 author: TODO
 license: proprietary
@@ -479,14 +488,14 @@ $HERMES_HOME/skills/{slug}/SKILL.md and the agent reads it at session start.
 
 ## When to use
 
-- TODO: situations where the agent should apply this skill.
+- TODO: situations where the agent should apply this ability.
 - TODO: situations where it should not.
 
 ## How
 
 TODO: step-by-step instructions. Files under payload/ are packaged at the
-skill's directory root (next to this file), so reference them relative to
-the skill directory, e.g.:
+ability's directory root (next to this file), so reference them relative to
+the ability directory, e.g.:
 
 ```bash
 cd "${{HERMES_HOME:-/opt/data}}/skills/{slug}"
@@ -527,7 +536,7 @@ fn pack(args: PackArgs, ctx: &CommandContext) -> Result<()> {
                 println!("  {file}");
             }
             println!(
-                "publish with: nolgia skill publish {}",
+                "publish with: nolgia ability publish {}",
                 result.out.display()
             );
             Ok(())
@@ -535,25 +544,25 @@ fn pack(args: PackArgs, ctx: &CommandContext) -> Result<()> {
     }
 }
 
-/// Validate an authoring directory and assemble the package `skill publish`
-/// consumes: skill.json + SKILL.md + payload/ contents at the package root.
+/// Validate an authoring directory and assemble the package `ability publish`
+/// consumes: ability.json + SKILL.md + payload/ contents at the package root.
 fn assemble(dir: &Path, out: Option<PathBuf>) -> Result<PackResult> {
-    let manifest_path = dir.join("skill.json");
+    let manifest_path = dir.join(MANIFEST);
     let manifest_raw = fs::read_to_string(&manifest_path).with_context(|| {
         format!(
-            "reading {} — scaffold an authoring directory with `nolgia skill init`",
+            "reading {} — scaffold an authoring directory with `nolgia ability init`",
             manifest_path.display()
         )
     })?;
     let manifest: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&manifest_raw).context("parsing skill.json")?;
+        serde_json::from_str(&manifest_raw).context("parsing ability.json")?;
     validate_manifest(&manifest)?;
     let slug = manifest["slug"].as_str().unwrap_or_default().to_string();
     let version = manifest["version"].as_str().unwrap_or_default().to_string();
 
     if !dir.join("SKILL.md").is_file() {
         bail!(
-            "{} has no SKILL.md — every skill needs agent-facing instructions",
+            "{} has no SKILL.md — every ability needs agent-facing instructions",
             dir.display()
         );
     }
@@ -563,7 +572,7 @@ fn assemble(dir: &Path, out: Option<PathBuf>) -> Result<PackResult> {
         fs::remove_dir_all(&out).with_context(|| format!("clearing {}", out.display()))?;
     }
     fs::create_dir_all(&out).with_context(|| format!("creating {}", out.display()))?;
-    fs::copy(dir.join("skill.json"), out.join("skill.json"))?;
+    fs::copy(dir.join(MANIFEST), out.join(MANIFEST))?;
     fs::copy(dir.join("SKILL.md"), out.join("SKILL.md"))?;
     let payload = dir.join("payload");
     if payload.is_dir() {
@@ -597,30 +606,30 @@ fn validate_manifest(manifest: &serde_json::Map<String, serde_json::Value>) -> R
         manifest
             .get(key)
             .and_then(|v| v.as_str())
-            .with_context(|| format!("skill.json is missing required string field {key:?}"))
+            .with_context(|| format!("ability.json is missing required string field {key:?}"))
     };
     let slug = string_field("slug")?;
     if !is_valid_slug(slug) {
         bail!(
-            "skill.json slug {slug:?} is invalid — must match ^[a-z0-9][a-z0-9-]{{0,63}}$ \
+            "ability.json slug {slug:?} is invalid — must match ^[a-z0-9][a-z0-9-]{{0,63}}$ \
              (lowercase letters, digits, hyphens)"
         );
     }
     let name = string_field("name")?;
     if name.is_empty() || name.len() > 128 {
-        bail!("skill.json name must be 1..=128 characters");
+        bail!("ability.json name must be 1..=128 characters");
     }
     let version = string_field("version")?;
     if !is_valid_version(version) {
-        bail!("skill.json version {version:?} is invalid — must be semver digits like \"1.0.0\"");
+        bail!("ability.json version {version:?} is invalid — must be semver digits like \"1.0.0\"");
     }
     if string_field("description")?.is_empty() {
-        bail!("skill.json description must not be empty — it is the marketplace listing text");
+        bail!("ability.json description must not be empty — it is the marketplace listing text");
     }
     if let Some(value) = manifest.get("visibility")
         && !matches!(value.as_str(), Some("public") | Some("private"))
     {
-        bail!("skill.json visibility must be \"public\" or \"private\", got {value}");
+        bail!("ability.json visibility must be \"public\" or \"private\", got {value}");
     }
     const TIERS: &[&str] = &[
         "",
@@ -635,7 +644,7 @@ fn validate_manifest(manifest: &serde_json::Map<String, serde_json::Value>) -> R
         && !value.as_str().is_some_and(|t| TIERS.contains(&t))
     {
         bail!(
-            "skill.json min_tier {value} is not a subscription tier (empty for free, or {})",
+            "ability.json min_tier {value} is not a subscription tier (empty for free, or {})",
             TIERS[1..].join(", ")
         );
     }
@@ -647,7 +656,7 @@ fn validate_manifest(manifest: &serde_json::Map<String, serde_json::Value>) -> R
                     .all(|item| item.as_str().is_some_and(|s| !s.is_empty()))
             });
             if !ok {
-                bail!("skill.json {key} must be an array of non-empty strings");
+                bail!("ability.json {key} must be an array of non-empty strings");
             }
         }
     }
@@ -665,7 +674,7 @@ fn copy_payload(src: &Path, dst: &Path, top: bool) -> Result<()> {
         if name == "__pycache__" || name == ".gitkeep" || name == ".git" {
             continue;
         }
-        if top && (name == "skill.json" || name == "SKILL.md") {
+        if top && (name == MANIFEST || name == "SKILL.md") {
             bail!("payload/{name} would overwrite the package {name} — rename it");
         }
         let from = entry.path();
@@ -702,14 +711,14 @@ fn collect_files(
 // --- publish ------------------------------------------------------------
 
 async fn publish(args: PublishArgs, ctx: &CommandContext) -> Result<()> {
-    let manifest_path = args.dir.join("skill.json");
+    let manifest_path = args.dir.join(MANIFEST);
     let manifest_raw = fs::read_to_string(&manifest_path)
         .with_context(|| format!("reading {}", manifest_path.display()))?;
     let manifest: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&manifest_raw).context("parsing skill.json")?;
+        serde_json::from_str(&manifest_raw).context("parsing ability.json")?;
     if !args.dir.join("SKILL.md").is_file() {
         bail!(
-            "{} has no SKILL.md — not a skill package",
+            "{} has no SKILL.md — not an ability package",
             args.dir.display()
         );
     }
@@ -719,11 +728,11 @@ async fn publish(args: PublishArgs, ctx: &CommandContext) -> Result<()> {
             .get(key)
             .and_then(|v| v.as_str())
             .map(str::to_string)
-            .with_context(|| format!("skill.json is missing required string field {key:?}"))
+            .with_context(|| format!("ability.json is missing required string field {key:?}"))
     };
-    let slug: PublishSkillRequestSlug = field("slug")?.parse().context("invalid slug")?;
-    let name: PublishSkillRequestName = field("name")?.parse().context("invalid name")?;
-    let version: PublishSkillRequestVersion =
+    let slug: PublishAbilityRequestSlug = field("slug")?.parse().context("invalid slug")?;
+    let name: PublishAbilityRequestName = field("name")?.parse().context("invalid name")?;
+    let version: PublishAbilityRequestVersion =
         field("version")?.parse().context("invalid version")?;
     let description = manifest
         .get("description")
@@ -746,22 +755,22 @@ async fn publish(args: PublishArgs, ctx: &CommandContext) -> Result<()> {
                 .collect()
         })
         .unwrap_or_default();
-    let min_tier: Option<PublishSkillRequestMinTier> = manifest
+    let min_tier: Option<PublishAbilityRequestMinTier> = manifest
         .get("min_tier")
         .and_then(|v| v.as_str())
         .map(|t| serde_json::from_value(serde_json::Value::String(t.to_string())))
         .transpose()
-        .context("skill.json min_tier is not a valid subscription tier")?;
-    let visibility: Option<SkillVisibility> = manifest
+        .context("ability.json min_tier is not a valid subscription tier")?;
+    let visibility: Option<AbilityVisibility> = manifest
         .get("visibility")
         .and_then(|v| v.as_str())
         .map(|t| serde_json::from_value(serde_json::Value::String(t.to_string())))
         .transpose()
-        .context("skill.json visibility must be \"public\" or \"private\"")?;
+        .context("ability.json visibility must be \"public\" or \"private\"")?;
 
     let content_base64 = BASE64.encode(pack_targz(&args.dir)?);
 
-    let body = PublishSkillRequest {
+    let body = PublishAbilityRequest {
         slug,
         name,
         version,
@@ -769,30 +778,33 @@ async fn publish(args: PublishArgs, ctx: &CommandContext) -> Result<()> {
         credit_cost_hint,
         required_env,
         min_tier,
+        access: None,
+        price_cents: None,
+        interval: None,
         visibility,
         manifest,
         content_base64,
     };
-    let skill = ctx
+    let ability = ctx
         .client()
-        .publish_skill()
+        .publish_ability()
         .body(body)
         .send()
         .await
-        .context("publishing skill (admin only)")?
+        .context("publishing ability (admin only)")?
         .into_inner();
     match ctx.format() {
-        OutputFormat::Json => print_json(&skill),
+        OutputFormat::Json => print_json(&ability),
         OutputFormat::Text => {
             println!(
                 "published {} v{} ({}, min_tier: {})",
-                skill.slug,
-                skill.latest_version,
-                skill.visibility,
-                if skill.min_tier.is_empty() {
+                ability.slug,
+                ability.latest_version,
+                ability.visibility,
+                if ability.min_tier.is_empty() {
                     "free"
                 } else {
-                    &skill.min_tier
+                    &ability.min_tier
                 }
             );
             Ok(())
@@ -838,15 +850,15 @@ fn append_dir<W: std::io::Write>(
     Ok(())
 }
 
-fn print_skill_line(skill: &Skill) {
+fn print_ability_line(ability: &Ability) {
     let mut tags = Vec::new();
-    if skill.visibility == SkillVisibility::Private {
+    if ability.visibility == AbilityVisibility::Private {
         tags.push("private".to_string());
     }
-    if !skill.min_tier.is_empty() {
-        tags.push(format!("requires {}", skill.min_tier));
+    if !ability.min_tier.is_empty() {
+        tags.push(format!("requires {}", ability.min_tier));
     }
-    if !skill.entitled {
+    if !ability.entitled {
         tags.push("not entitled".to_string());
     }
     let suffix = if tags.is_empty() {
@@ -856,7 +868,7 @@ fn print_skill_line(skill: &Skill) {
     };
     println!(
         "{:28} v{:10} {}{}",
-        skill.slug, skill.latest_version, skill.name, suffix
+        ability.slug, ability.latest_version, ability.name, suffix
     );
 }
 
@@ -866,10 +878,10 @@ mod tests {
 
     #[test]
     fn pack_and_materialize_roundtrip() {
-        let base = std::env::temp_dir().join(format!("nolgia-skill-test-{}", std::process::id()));
-        let src = base.join("src/my-skill");
+        let base = std::env::temp_dir().join(format!("nolgia-ability-test-{}", std::process::id()));
+        let src = base.join("src/my-ability");
         fs::create_dir_all(src.join("nested")).unwrap();
-        fs::write(src.join("SKILL.md"), "---\nname: my-skill\n---\n").unwrap();
+        fs::write(src.join("SKILL.md"), "---\nname: my-ability\n---\n").unwrap();
         fs::write(src.join("nested/tool.py"), "print('hi')\n").unwrap();
         fs::create_dir_all(src.join("__pycache__")).unwrap();
         fs::write(src.join("__pycache__/junk.pyc"), "x").unwrap();
@@ -877,16 +889,16 @@ mod tests {
         let targz = pack_targz(&src).unwrap();
         let root = base.join("skills");
         fs::create_dir_all(&root).unwrap();
-        materialize(&root, "my-skill", "1.2.3", &targz).unwrap();
+        materialize(&root, "my-ability", "1.2.3", &targz).unwrap();
 
-        let installed = root.join("my-skill");
+        let installed = root.join("my-ability");
         assert!(installed.join("SKILL.md").is_file());
         assert!(installed.join("nested/tool.py").is_file());
         assert!(!installed.join("__pycache__").exists());
         assert_eq!(marker_version(&installed).as_deref(), Some("1.2.3"));
 
         // Re-materializing a new version replaces the dir atomically.
-        materialize(&root, "my-skill", "1.3.0", &targz).unwrap();
+        materialize(&root, "my-ability", "1.3.0", &targz).unwrap();
         assert_eq!(marker_version(&installed).as_deref(), Some("1.3.0"));
 
         fs::remove_dir_all(&base).ok();
@@ -911,38 +923,38 @@ mod tests {
     #[test]
     fn init_scaffolds_valid_pack_input() {
         let base = tempfile::tempdir().unwrap();
-        let dir = base.path().join("my-skill");
-        let result = scaffold("my-skill", &dir).unwrap();
-        assert_eq!(result.slug, "my-skill");
-        assert!(dir.join("skill.json").is_file());
+        let dir = base.path().join("my-ability");
+        let result = scaffold("my-ability", &dir).unwrap();
+        assert_eq!(result.slug, "my-ability");
+        assert!(dir.join("ability.json").is_file());
         assert!(dir.join("SKILL.md").is_file());
         assert!(dir.join("payload/.gitkeep").is_file());
 
         // The scaffold packs as-is, and its manifest fields parse into the
-        // exact request types `skill publish` builds.
-        let out = base.path().join("dist/my-skill");
+        // exact request types `ability publish` builds.
+        let out = base.path().join("dist/my-ability");
         let packed = assemble(&dir, Some(out.clone())).unwrap();
         assert_eq!(packed.version, "0.1.0");
         let manifest: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&fs::read_to_string(out.join("skill.json")).unwrap()).unwrap();
+            serde_json::from_str(&fs::read_to_string(out.join("ability.json")).unwrap()).unwrap();
         manifest["slug"]
             .as_str()
             .unwrap()
-            .parse::<PublishSkillRequestSlug>()
+            .parse::<PublishAbilityRequestSlug>()
             .unwrap();
         manifest["name"]
             .as_str()
             .unwrap()
-            .parse::<PublishSkillRequestName>()
+            .parse::<PublishAbilityRequestName>()
             .unwrap();
         manifest["version"]
             .as_str()
             .unwrap()
-            .parse::<PublishSkillRequestVersion>()
+            .parse::<PublishAbilityRequestVersion>()
             .unwrap();
-        let visibility: SkillVisibility =
+        let visibility: AbilityVisibility =
             serde_json::from_value(manifest["visibility"].clone()).unwrap();
-        assert_eq!(visibility, SkillVisibility::Private);
+        assert_eq!(visibility, AbilityVisibility::Private);
         assert_eq!(manifest["min_tier"], serde_json::json!(""));
         assert_eq!(manifest["python_requirements"], serde_json::json!([]));
         // Scaffolding noise stays out of the package.
@@ -950,20 +962,20 @@ mod tests {
 
         // Refuses bad slugs and existing directories.
         assert!(scaffold("Bad_Slug", &base.path().join("x")).is_err());
-        assert!(scaffold("my-skill", &dir).is_err());
+        assert!(scaffold("my-ability", &dir).is_err());
     }
 
     fn authoring_dir(base: &Path, manifest: serde_json::Value) -> PathBuf {
         let dir = base.join("src");
         fs::create_dir_all(dir.join("payload")).unwrap();
-        fs::write(dir.join("skill.json"), manifest.to_string()).unwrap();
-        fs::write(dir.join("SKILL.md"), "---\nname: my-skill\n---\n").unwrap();
+        fs::write(dir.join("ability.json"), manifest.to_string()).unwrap();
+        fs::write(dir.join("SKILL.md"), "---\nname: my-ability\n---\n").unwrap();
         dir
     }
 
     fn manifest_json() -> serde_json::Value {
         serde_json::json!({
-            "slug": "my-skill", "name": "My Skill", "version": "0.1.0",
+            "slug": "my-ability", "name": "My Ability", "version": "0.1.0",
             "description": "d", "required_env": [], "credit_cost_hint": "",
             "min_tier": "", "visibility": "private"
         })
@@ -1025,12 +1037,12 @@ mod tests {
         fs::create_dir_all(dir.join("payload/__pycache__")).unwrap();
         fs::write(dir.join("payload/__pycache__/junk.pyc"), "x").unwrap();
 
-        let out = base.path().join("dist/my-skill");
+        let out = base.path().join("dist/my-ability");
         let packed = assemble(&dir, Some(out.clone())).unwrap();
-        assert_eq!(packed.slug, "my-skill");
+        assert_eq!(packed.slug, "my-ability");
         assert_eq!(
             packed.files,
-            vec!["SKILL.md", "pkg/__init__.py", "skill.json", "tool.py"]
+            vec!["SKILL.md", "ability.json", "pkg/__init__.py", "tool.py"]
         );
 
         // Payload contents sit at the package root, exactly where the
@@ -1038,9 +1050,9 @@ mod tests {
         let targz = pack_targz(&out).unwrap();
         let root = base.path().join("skills");
         fs::create_dir_all(&root).unwrap();
-        materialize(&root, "my-skill", "0.1.0", &targz).unwrap();
-        let installed = root.join("my-skill");
-        assert!(installed.join("skill.json").is_file());
+        materialize(&root, "my-ability", "0.1.0", &targz).unwrap();
+        let installed = root.join("my-ability");
+        assert!(installed.join("ability.json").is_file());
         assert!(installed.join("SKILL.md").is_file());
         assert!(installed.join("tool.py").is_file());
         assert!(installed.join("pkg/__init__.py").is_file());
@@ -1048,8 +1060,8 @@ mod tests {
         assert!(!installed.join("__pycache__").exists());
 
         // A payload file that would shadow the manifest is refused.
-        fs::write(dir.join("payload/skill.json"), "{}").unwrap();
+        fs::write(dir.join("payload/ability.json"), "{}").unwrap();
         let err = assemble(&dir, Some(out)).unwrap_err();
-        assert!(err.to_string().contains("payload/skill.json"), "{err}");
+        assert!(err.to_string().contains("payload/ability.json"), "{err}");
     }
 }
