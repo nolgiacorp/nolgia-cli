@@ -6,7 +6,7 @@ mod update_check;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use commands::{
-    CommandContext, account, assets, billing, characters, r#gen, models, pat, projects, skill,
+    CommandContext, ability, account, assets, billing, characters, r#gen, models, pat, projects,
     skills, status, wait,
 };
 use nolgia_client::{Client, ClientBuilder};
@@ -58,9 +58,9 @@ pub enum Commands {
     Skills(skills::SkillsCommand),
     #[command(
         subcommand,
-        about = "Marketplace skills for your Hermes agent (list, install, sync, init, pack, publish)"
+        about = "Marketplace abilities for your Hermes agent (list, install, sync, init, pack, publish)"
     )]
-    Skill(skill::SkillCommand),
+    Ability(ability::AbilityCommand),
     #[command(subcommand, about = "Live model catalog with capabilities and pricing")]
     Models(models::ModelsCommand),
     #[command(about = "Generate shell completions (bash, zsh, fish, powershell)")]
@@ -134,7 +134,7 @@ pub async fn run_cli(cli: Cli) -> Result<()> {
         Commands::Billing(command) => billing::run(command, &ctx).await,
         Commands::Pat(command) => pat::run(command, &ctx).await,
         Commands::Skills(_) => unreachable!("skills handled before client construction"),
-        Commands::Skill(command) => skill::run(command, &ctx).await,
+        Commands::Ability(command) => ability::run(command, &ctx).await,
         Commands::Completion(_) => unreachable!("completion handled before client construction"),
         Commands::Models(command) => models::run(command, &ctx).await,
     }

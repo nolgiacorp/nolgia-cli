@@ -752,51 +752,53 @@ fn account_help_lists_subcommands() {
 }
 
 #[tokio::test]
-async fn skill_list_shows_marketplace_catalog() {
+async fn ability_list_shows_marketplace_catalog() {
     let api = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/v1/skills"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!([skill_json("public", true)])))
+        .and(path("/v1/abilities"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!([ability_json("public", true)])),
+        )
         .mount(&api)
         .await;
-    run_ok(&api, &["skill", "list"])
+    run_ok(&api, &["ability", "list"])
         .stdout(predicate::str::contains("nolgia-cli-basics"))
         .stdout(predicate::str::contains("v1.0.0"));
 }
 
 #[tokio::test]
-async fn skill_list_marks_private_skills() {
+async fn ability_list_marks_private_abilities() {
     let api = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/v1/skills"))
+        .and(path("/v1/abilities"))
         .respond_with(
-            ResponseTemplate::new(200).set_body_json(json!([skill_json("private", true)])),
+            ResponseTemplate::new(200).set_body_json(json!([ability_json("private", true)])),
         )
         .mount(&api)
         .await;
-    run_ok(&api, &["skill", "list"]).stdout(predicate::str::contains("[private]"));
+    run_ok(&api, &["ability", "list"]).stdout(predicate::str::contains("[private]"));
 }
 
 #[tokio::test]
-async fn skill_install_reports_pod_delivery() {
+async fn ability_install_reports_pod_delivery() {
     let api = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/agent/skills/nolgia-cli-basics"))
+        .and(path("/v1/agent/abilities/nolgia-cli-basics"))
         .respond_with(ResponseTemplate::new(201).set_body_json(json!({
             "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics", "description": "d",
             "latest_version": "1.0.0", "installed_at": "2026-06-13T00:00:00Z"
         })))
         .mount(&api)
         .await;
-    run_ok(&api, &["skill", "install", "nolgia-cli-basics"]).stdout(predicate::str::contains(
+    run_ok(&api, &["ability", "install", "nolgia-cli-basics"]).stdout(predicate::str::contains(
         "installed nolgia-cli-basics v1.0.0",
     ));
 }
 
 #[tokio::test]
-async fn skill_sync_materializes_installed_skills() {
+async fn ability_sync_materializes_installed_abilities() {
     use base64::Engine as _;
-    // Build a tiny skill tarball to serve as content.
+    // Build a tiny ability tarball to serve as content.
     let targz = {
         let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
         let mut builder = tar::Builder::new(encoder);
@@ -813,7 +815,7 @@ async fn skill_sync_materializes_installed_skills() {
 
     let api = MockServer::start().await;
     Mock::given(method("GET"))
-        .and(path("/v1/agent/skills"))
+        .and(path("/v1/agent/abilities"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
             "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics", "description": "d",
             "latest_version": "1.0.0", "installed_at": "2026-06-13T00:00:00Z"
@@ -821,7 +823,7 @@ async fn skill_sync_materializes_installed_skills() {
         .mount(&api)
         .await;
     Mock::given(method("GET"))
-        .and(path("/v1/skills/nolgia-cli-basics/content"))
+        .and(path("/v1/abilities/nolgia-cli-basics/content"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "slug": "nolgia-cli-basics", "version": "1.0.0", "manifest": {},
             "content_base64": base64::engine::general_purpose::STANDARD.encode(&targz)
@@ -832,7 +834,7 @@ async fn skill_sync_materializes_installed_skills() {
     let dir = tempfile::tempdir().unwrap();
     run_ok(
         &api,
-        &["skill", "sync", "--dir", dir.path().to_str().unwrap()],
+        &["ability", "sync", "--dir", dir.path().to_str().unwrap()],
     )
     .stdout(predicate::str::contains(
         "synced   nolgia-cli-basics v1.0.0",
@@ -840,14 +842,14 @@ async fn skill_sync_materializes_installed_skills() {
     assert!(dir.path().join("nolgia-cli-basics/SKILL.md").is_file());
     assert!(
         dir.path()
-            .join("nolgia-cli-basics/.nolgia-skill.json")
+            .join("nolgia-cli-basics/.nolgia-ability.json")
             .is_file()
     );
 
     // Second sync is a no-op ("current"), driven by the version marker.
     run_ok(
         &api,
-        &["skill", "sync", "--dir", dir.path().to_str().unwrap()],
+        &["ability", "sync", "--dir", dir.path().to_str().unwrap()],
     )
     .stdout(predicate::str::contains(
         "current  nolgia-cli-basics v1.0.0",
@@ -855,10 +857,10 @@ async fn skill_sync_materializes_installed_skills() {
 }
 
 #[tokio::test]
-async fn skill_publish_sends_manifest_and_content() {
+async fn ability_publish_sends_manifest_and_content() {
     let pkg = tempfile::tempdir().unwrap();
     std::fs::write(
-        pkg.path().join("skill.json"),
+        pkg.path().join("ability.json"),
         json!({
             "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics", "version": "1.0.0",
             "description": "CLI basics", "required_env": ["NOLGIA_TOKEN"],
@@ -875,19 +877,19 @@ async fn skill_publish_sends_manifest_and_content() {
 
     let api = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/skills"))
-        .respond_with(ResponseTemplate::new(201).set_body_json(skill_json("public", true)))
+        .and(path("/v1/abilities"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(ability_json("public", true)))
         .mount(&api)
         .await;
-    run_ok(&api, &["skill", "publish", pkg.path().to_str().unwrap()]).stdout(
+    run_ok(&api, &["ability", "publish", pkg.path().to_str().unwrap()]).stdout(
         predicate::str::contains("published nolgia-cli-basics v1.0.0 (public, min_tier: free)"),
     );
 }
 
 #[test]
-fn skill_help_lists_authoring_verbs() {
+fn ability_help_lists_authoring_verbs() {
     cmd()
-        .args(["skill", "--help"])
+        .args(["ability", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains("init"))
@@ -896,29 +898,29 @@ fn skill_help_lists_authoring_verbs() {
 }
 
 #[tokio::test]
-async fn skill_init_pack_publish_roundtrip() {
+async fn ability_init_pack_publish_roundtrip() {
     let base = tempfile::tempdir().unwrap();
-    let authoring = base.path().join("my-skill");
+    let authoring = base.path().join("my-ability");
     let api = MockServer::start().await;
 
     run_ok(
         &api,
         &[
-            "skill",
+            "ability",
             "init",
-            "my-skill",
+            "my-ability",
             "--dir",
             authoring.to_str().unwrap(),
         ],
     )
-    .stdout(predicate::str::contains("nolgia skill pack"));
+    .stdout(predicate::str::contains("nolgia ability pack"));
 
-    // Author the skill: drop code into payload/ and declare a pip dep.
+    // Author the ability: drop code into payload/ and declare a pip dep.
     std::fs::write(authoring.join("payload/tool.py"), "print('hi')\n").unwrap();
-    let manifest = std::fs::read_to_string(authoring.join("skill.json")).unwrap();
+    let manifest = std::fs::read_to_string(authoring.join("ability.json")).unwrap();
     assert!(manifest.contains("\"python_requirements\": []"));
     std::fs::write(
-        authoring.join("skill.json"),
+        authoring.join("ability.json"),
         manifest.replace(
             "\"python_requirements\": []",
             "\"python_requirements\": [\"requests>=2.31\"]",
@@ -926,18 +928,18 @@ async fn skill_init_pack_publish_roundtrip() {
     )
     .unwrap();
 
-    let out = base.path().join("dist/my-skill");
+    let out = base.path().join("dist/my-ability");
     run_ok(
         &api,
         &[
-            "skill",
+            "ability",
             "pack",
             authoring.to_str().unwrap(),
             "--out",
             out.to_str().unwrap(),
         ],
     )
-    .stdout(predicate::str::contains("packed my-skill v0.1.0"))
+    .stdout(predicate::str::contains("packed my-ability v0.1.0"))
     .stdout(predicate::str::contains("tool.py"));
     // Payload contents land at the package root, next to SKILL.md.
     assert!(out.join("tool.py").is_file());
@@ -946,44 +948,44 @@ async fn skill_init_pack_publish_roundtrip() {
     // The packed dir publishes as-is; python_requirements travels verbatim
     // inside the manifest.
     Mock::given(method("POST"))
-        .and(path("/v1/skills"))
+        .and(path("/v1/abilities"))
         .and(body_partial_json(json!({
-            "slug": "my-skill", "version": "0.1.0", "visibility": "private",
+            "slug": "my-ability", "version": "0.1.0", "visibility": "private",
             "manifest": { "python_requirements": ["requests>=2.31"] }
         })))
-        .respond_with(ResponseTemplate::new(201).set_body_json(skill_json("private", true)))
+        .respond_with(ResponseTemplate::new(201).set_body_json(ability_json("private", true)))
         .mount(&api)
         .await;
-    run_ok(&api, &["skill", "publish", out.to_str().unwrap()])
+    run_ok(&api, &["ability", "publish", out.to_str().unwrap()])
         .stdout(predicate::str::contains("published"));
 }
 
 #[test]
-fn skill_pack_rejects_bad_version() {
+fn ability_pack_rejects_bad_version() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(
-        dir.path().join("skill.json"),
+        dir.path().join("ability.json"),
         json!({
-            "slug": "my-skill", "name": "My Skill", "version": "1.0",
+            "slug": "my-ability", "name": "My Ability", "version": "1.0",
             "description": "d", "visibility": "private"
         })
         .to_string(),
     )
     .unwrap();
-    std::fs::write(dir.path().join("SKILL.md"), "---\nname: my-skill\n---\n").unwrap();
+    std::fs::write(dir.path().join("SKILL.md"), "---\nname: my-ability\n---\n").unwrap();
     cmd()
-        .args(["skill", "pack", dir.path().to_str().unwrap()])
+        .args(["ability", "pack", dir.path().to_str().unwrap()])
         .assert()
         .failure()
         .stderr(predicate::str::contains("version"));
 }
 
-fn skill_json(visibility: &str, entitled: bool) -> serde_json::Value {
+fn ability_json(visibility: &str, entitled: bool) -> serde_json::Value {
     json!({
         "slug": "nolgia-cli-basics", "name": "NOLGIA CLI Basics",
         "description": "Drive the platform with the nolgia CLI", "required_env": ["NOLGIA_TOKEN"],
         "credit_cost_hint": "free", "min_tier": "", "visibility": visibility, "entitled": entitled,
-        "latest_version": "1.0.0",
+        "access": "included", "has_code": false, "latest_version": "1.0.0",
         "created_at": "2026-06-13T00:00:00Z", "updated_at": "2026-06-13T00:00:00Z"
     })
 }

@@ -46,8 +46,8 @@ tags:
     description: Personal Access Token issuance and revocation.
   - name: Agent
     description: Per-customer Hermes agent provisioning, usage, and chat relay.
-  - name: Skills
-    description: Marketplace of admin-published skill packages that customer Hermes agents install and run.
+  - name: Abilities
+    description: Marketplace of admin-published ability packages that customer Hermes agents install and run.
   - name: Health
     description: Service health probes.
 
@@ -1140,20 +1140,20 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
-  /agent/skills:
+  /agent/abilities:
     get:
-      tags: [Skills]
-      operationId: listAgentSkills
-      summary: List the skills installed for the current user's agent.
+      tags: [Abilities]
+      operationId: listAgentAbilities
+      summary: List the abilities installed for the current user's agent.
       responses:
         '200':
-          description: Installed skills, newest install first.
+          description: Installed abilities, newest install first.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/AgentInstalledSkill'
+                  $ref: '#/components/schemas/AgentInstalledAbility'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -1161,20 +1161,20 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
-  /agent/skills/{slug}:
+  /agent/abilities/{slug}:
     post:
-      tags: [Skills]
-      operationId: installAgentSkill
-      summary: Install a published skill for the current user's agent (applied on the next skill sync). Requires the skill's entitlement (`min_tier`).
+      tags: [Abilities]
+      operationId: installAgentAbility
+      summary: Install a published ability for the current user's agent (applied on the next ability sync). Requires the ability's entitlement (`min_tier`).
       parameters:
-        - $ref: '#/components/parameters/SkillSlug'
+        - $ref: '#/components/parameters/AbilitySlug'
       responses:
         '201':
-          description: Skill installed for the agent.
+          description: Ability installed for the agent.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AgentInstalledSkill'
+                $ref: '#/components/schemas/AgentInstalledAbility'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '402':
@@ -1186,14 +1186,14 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
     delete:
-      tags: [Skills]
-      operationId: uninstallAgentSkill
-      summary: Uninstall a skill from the current user's agent.
+      tags: [Abilities]
+      operationId: uninstallAgentAbility
+      summary: Uninstall an ability from the current user's agent.
       parameters:
-        - $ref: '#/components/parameters/SkillSlug'
+        - $ref: '#/components/parameters/AbilitySlug'
       responses:
         '204':
-          description: Skill uninstalled.
+          description: Ability uninstalled.
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -1201,41 +1201,41 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
-  /skills:
+  /abilities:
     get:
-      tags: [Skills]
-      operationId: listSkills
-      summary: List published marketplace skills (metadata only — content is never included in listings). Customers see the public catalog; admin accounts also see private skills.
+      tags: [Abilities]
+      operationId: listAbilities
+      summary: List published marketplace abilities (metadata only — content is never included in listings). Customers see the public catalog; admin accounts also see private abilities.
       responses:
         '200':
-          description: Published skills.
+          description: Published abilities.
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Skill'
+                  $ref: '#/components/schemas/Ability'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
     post:
-      tags: [Skills]
-      operationId: publishSkill
-      summary: Publish a new skill version (admin only; upserts the skill by slug, versions are immutable).
+      tags: [Abilities]
+      operationId: publishAbility
+      summary: Publish a new ability version (admin only; upserts the ability by slug, versions are immutable).
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PublishSkillRequest'
+              $ref: '#/components/schemas/PublishAbilityRequest'
       responses:
         '201':
-          description: Skill version published.
+          description: Ability version published.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Skill'
+                $ref: '#/components/schemas/Ability'
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
@@ -1247,20 +1247,20 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
-  /skills/{slug}:
+  /abilities/{slug}:
     get:
-      tags: [Skills]
-      operationId: getSkill
-      summary: Get a published skill's detail.
+      tags: [Abilities]
+      operationId: getAbility
+      summary: Get a published ability's detail.
       parameters:
-        - $ref: '#/components/parameters/SkillSlug'
+        - $ref: '#/components/parameters/AbilitySlug'
       responses:
         '200':
-          description: The skill.
+          description: The ability.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Skill'
+                $ref: '#/components/schemas/Ability'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -1268,20 +1268,20 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
-  /skills/{slug}/content:
+  /abilities/{slug}/content:
     get:
-      tags: [Skills]
-      operationId: getSkillContent
-      summary: Download the latest published version's package content (base64 tar.gz). Entitlement-gated — the caller's subscription must satisfy the skill's `min_tier`.
+      tags: [Abilities]
+      operationId: getAbilityContent
+      summary: Download the latest published version's package content (base64 tar.gz). Entitlement-gated — the caller's subscription must satisfy the ability's `min_tier`.
       parameters:
-        - $ref: '#/components/parameters/SkillSlug'
+        - $ref: '#/components/parameters/AbilitySlug'
       responses:
         '200':
           description: Latest version content.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SkillContent'
+                $ref: '#/components/schemas/AbilityContent'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '402':
@@ -1290,6 +1290,7 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
         default:
           $ref: '#/components/responses/ProblemResponse'
+
 
   /internal/agents:
     get:
@@ -1436,11 +1437,11 @@ components:
         type: string
         format: uuid
 
-    SkillSlug:
+    AbilitySlug:
       name: slug
       in: path
       required: true
-      description: Skill slug (lowercase letters, digits, hyphens).
+      description: Ability slug (lowercase letters, digits, hyphens).
       schema:
         type: string
         pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
@@ -2592,20 +2593,37 @@ components:
           description: Display prefix of the agent token.
           examples: ['nol_a1b2c3d4']
 
-    SkillVisibility:
+    AbilityVisibility:
       type: string
       enum: [public, private]
-      x-enum-varnames: [SkillVisibilityPublic, SkillVisibilityPrivate]
-      description: Audience of a skill. `public` skills appear in the customer catalog; `private` skills are invisible to non-admin callers (listings omit them, direct reads 404) and their content is only obtainable by admin accounts.
+      x-enum-varnames: [AbilityVisibilityPublic, AbilityVisibilityPrivate]
+      description: Audience of an ability. `public` abilities appear in the customer catalog; `private` abilities are invisible to non-admin callers (listings omit them, direct reads 404) and their content is only obtainable by admin accounts.
 
-    Skill:
+    AbilityAccess:
+      type: string
+      enum: [included, premium_addon]
+      x-enum-varnames: [AbilityAccessIncluded, AbilityAccessPremiumAddon]
+      description: |
+        Commercial access model of an ability. `included` abilities are bundled with Studio at
+        no extra cost. `premium_addon` abilities carry a standalone price (`price_cents` +
+        `interval`) and are surfaced as paid add-ons. This is metadata only for now — no
+        billing enforcement gates content download on `access` (min_tier still governs
+        entitlement); it drives marketplace presentation and a future purchase flow.
+
+    AbilityInterval:
+      type: string
+      enum: [month]
+      x-enum-varnames: [AbilityIntervalMonth]
+      description: Billing interval for a `premium_addon` ability's price. Only monthly is supported for now.
+
+    Ability:
       type: object
       additionalProperties: false
-      required: [slug, name, description, required_env, credit_cost_hint, min_tier, visibility, entitled, latest_version, created_at, updated_at]
+      required: [slug, name, description, required_env, credit_cost_hint, min_tier, visibility, entitled, access, has_code, latest_version, created_at, updated_at]
       properties:
         slug:
           type: string
-          description: Marketplace identity of the skill; also the install directory name under `$HERMES_HOME/skills/`.
+          description: Marketplace identity of the ability; also the install directory name under `$HERMES_HOME/skills/` (the on-disk install root is unchanged for backward compatibility).
           examples: ['short-film']
         name:
           type: string
@@ -2616,20 +2634,40 @@ components:
           type: array
           items:
             type: string
-          description: Environment variables the skill expects on the agent pod.
+          description: Environment variables the ability expects on the agent pod.
           examples: [['NOLGIA_TOKEN', 'NOLGIA_API_URL']]
         credit_cost_hint:
           type: string
-          description: Free-text hint of how the skill spends credits.
+          description: Free-text hint of how the ability spends credits.
         min_tier:
           type: string
-          description: Minimum subscription tier required to install or download this skill's content. Empty means free for any account.
+          description: Minimum subscription tier required to install or download this ability's content. Empty means free for any account.
           examples: ['studio_min']
         visibility:
-          $ref: '#/components/schemas/SkillVisibility'
+          $ref: '#/components/schemas/AbilityVisibility'
         entitled:
           type: boolean
-          description: Whether the calling account may download this skill's content (subscription satisfies `min_tier`, or admin). Listings are metadata-only; content download is refused (402) when false.
+          description: Whether the calling account may download this ability's content (subscription satisfies `min_tier`, or admin). Listings are metadata-only; content download is refused (402) when false.
+        access:
+          $ref: '#/components/schemas/AbilityAccess'
+        price_cents:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: For `premium_addon` abilities, the add-on price in cents. `null` for `included` abilities. Metadata only — no purchase flow enforces it yet.
+          examples: [1500]
+        interval:
+          allOf:
+            - $ref: '#/components/schemas/AbilityInterval'
+          nullable: true
+          description: For `premium_addon` abilities, the billing interval of `price_cents`. `null` for `included` abilities.
+        has_code:
+          type: boolean
+          description: |
+            True when the package carries a code payload — any file beyond the
+            manifest files (`SKILL.md`, and `ability.json` or its `skill.json`
+            fallback). Computed at publish time. Drives the marketplace "Package"
+            vs "Ability" (instructions-only) kind badge.
         latest_version:
           type: string
           description: Latest published semver version.
@@ -2641,7 +2679,7 @@ components:
           type: string
           format: date-time
 
-    SkillContent:
+    AbilityContent:
       type: object
       additionalProperties: false
       required: [slug, version, manifest, content_base64]
@@ -2653,12 +2691,12 @@ components:
           description: The version this content belongs to (the latest published version).
         manifest:
           type: object
-          description: The `skill.json` manifest captured at publish time.
+          description: The `ability.json` (or legacy `skill.json`) manifest captured at publish time.
         content_base64:
           type: string
-          description: Base64-encoded tar.gz of the skill package directory.
+          description: Base64-encoded tar.gz of the ability package directory.
 
-    AgentInstalledSkill:
+    AgentInstalledAbility:
       type: object
       additionalProperties: false
       required: [slug, name, description, latest_version, installed_at]
@@ -2676,7 +2714,7 @@ components:
           type: string
           format: date-time
 
-    PublishSkillRequest:
+    PublishAbilityRequest:
       type: object
       additionalProperties: false
       required: [slug, name, version, content_base64]
@@ -2707,16 +2745,30 @@ components:
         min_tier:
           type: string
           enum: ['', starter, pro, studio, studio_min, studio_mid, studio_max]
-          x-enum-varnames: [SkillTierFree, SkillTierStarter, SkillTierPro, SkillTierStudio, SkillTierStudioMin, SkillTierStudioMid, SkillTierStudioMax]
-          description: Minimum subscription tier required to install/download the skill. Empty (default) means free.
+          x-enum-varnames: [AbilityTierFree, AbilityTierStarter, AbilityTierPro, AbilityTierStudio, AbilityTierStudioMin, AbilityTierStudioMid, AbilityTierStudioMax]
+          description: Minimum subscription tier required to install/download the ability. Empty (default) means free.
+        access:
+          allOf:
+            - $ref: '#/components/schemas/AbilityAccess'
+          description: Commercial access model. Defaults to `included` when omitted. `premium_addon` requires `price_cents` + `interval`.
+        price_cents:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Add-on price in cents, required for `premium_addon` (and rejected for `included`). Metadata only — no purchase flow yet.
+        interval:
+          allOf:
+            - $ref: '#/components/schemas/AbilityInterval'
+          nullable: true
+          description: Billing interval of `price_cents`, required for `premium_addon` (and rejected for `included`).
         visibility:
-          $ref: '#/components/schemas/SkillVisibility'
+          $ref: '#/components/schemas/AbilityVisibility'
         manifest:
           type: object
-          description: The full `skill.json` manifest, stored verbatim with the version.
+          description: The full `ability.json` (or legacy `skill.json`) manifest, stored verbatim with the version.
         content_base64:
           type: string
-          description: Base64-encoded tar.gz of the skill package directory (max 5 MiB decoded).
+          description: Base64-encoded tar.gz of the ability package directory (max 5 MiB decoded).
 
     UpdateAgentDeploymentRequest:
       type: object
