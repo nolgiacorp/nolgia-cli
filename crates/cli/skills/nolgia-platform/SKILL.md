@@ -49,9 +49,25 @@ nolgia gen video --prompt "drone shot over a rocky coastline at dawn" \
 nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
   --input portrait.png --prompt "she turns to camera and smiles" --out talk.mp4
 
+# Reference-to-video (remix existing footage; Seedance 2.0 Pro):
+# --video-ref = video asset UUID (≤3; MP4/MOV, 480p–720p, 2–15s and 50MB
+# combined — this model REQUIRES at least one), --element = image asset
+# UUID (≤9). Address them in the prompt as @Video1..@Video3 / @Image1..
+nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/reference-to-video \
+  --video-ref <video asset uuid> --element <image asset uuid> \
+  --prompt "@Video1 restaged in the style of @Image1" \
+  --quality 1080p --bitrate high --out remix.mp4
+
 # Audio / TTS / music / SFX
 nolgia gen audio --prompt "warm lofi beat, vinyl crackle" --out bed.mp3
 ```
+
+`--quality` selects a model-specific resolution tier (Seedance 2.0 Pro:
+720p/1080p/4k; premium tiers cost more — tiers + per-tier credits in
+`nolgia models get <model>`; `--cost-only` prices the tier). `--end-frame
+<image asset uuid|file>` pins the final frame next to `--input` on models
+with end-frame support, and `nolgia assets frame <video asset id> [--at
+SECONDS]` extracts a still (default: last frame) to chain clips.
 
 ## Video model selection (credits differ ~5x)
 

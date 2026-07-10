@@ -13,6 +13,9 @@ const PAT_ID: &str = "33333333-3333-4333-8333-333333333333";
 const CHARACTER_ID: &str = "44444444-4444-4444-8444-444444444444";
 const PROJECT_ID: &str = "55555555-5555-4555-8555-555555555555";
 const ASSET_ID: &str = "66666666-6666-4666-8666-666666666666";
+const ELEMENT_ASSET_ID: &str = "77777777-7777-4777-8777-777777777777";
+const R2V_MODEL: &str = "fal-ai/bytedance/seedance/v2/pro/reference-to-video";
+const I2V_MODEL: &str = "fal-ai/bytedance/seedance/v2/pro/image-to-video";
 
 #[test]
 fn help_lists_full_command_surface() {
@@ -160,6 +163,265 @@ async fn gen_audio_prints_asset_url() {
     run_ok(&api, &["gen", "audio", "--prompt", "x"]).stdout(predicate::str::contains("video.mp4"));
 }
 
+#[test]
+fn video_help_lists_quality_and_reference_flags() {
+    cmd()
+        .args(["gen", "video", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--quality"))
+        .stdout(predicate::str::contains("--bitrate"))
+        .stdout(predicate::str::contains("--video-ref"))
+        .stdout(predicate::str::contains("--element"))
+        .stdout(predicate::str::contains("--end-frame"));
+}
+
+#[tokio::test]
+async fn gen_video_sends_quality_and_reference_fields() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({
+            "model": R2V_MODEL,
+            "quality": "1080p",
+            "bitrate_mode": "high",
+            "video_asset_ids": [ASSET_ID],
+            "element_asset_ids": [ELEMENT_ASSET_ID],
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            R2V_MODEL,
+            "--prompt",
+            "@Video1 restyled with @Image1",
+            "--quality",
+            "1080p",
+            "--bitrate",
+            "high",
+            "--video-ref",
+            ASSET_ID,
+            "--element",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+#[tokio::test]
+async fn gen_video_sends_end_frame_asset_id() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v1/assets/{ASSET_ID}")))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(asset_json("https://files/start.png")),
+        )
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .and(body_partial_json(json!({
+            "image_url": "https://files/start.png",
+            "end_image_asset_id": ELEMENT_ASSET_ID,
+        })))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            I2V_MODEL,
+            "--prompt",
+            "x",
+            "--input",
+            ASSET_ID,
+            "--end-frame",
+            ELEMENT_ASSET_ID,
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains(JOB_ID));
+}
+
+#[test]
+fn gen_video_end_frame_requires_input() {
+    cmd()
+        .args([
+            "gen",
+            "video",
+            "--prompt",
+            "x",
+            "--end-frame",
+            ASSET_ID,
+            "--api-url",
+            "http://127.0.0.1:9",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--end-frame requires --input"));
+}
+
+#[test]
+fn gen_video_rejects_more_than_three_video_refs() {
+    let mut args = vec!["gen", "video", "--prompt", "x"];
+    for _ in 0..4 {
+        args.extend(["--video-ref", ASSET_ID]);
+    }
+    args.extend(["--api-url", "http://127.0.0.1:9"]);
+    cmd()
+        .args(args)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("at most 3 reference videos"));
+}
+
+#[tokio::test]
+async fn gen_video_unknown_quality_lists_tiers_with_credits() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "video",
+            "--model",
+            R2V_MODEL,
+            "--prompt",
+            "x",
+            "--quality",
+            "8k",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "720p — 165 credits per 5s clip (default)",
+        ))
+        .stderr(predicate::str::contains(
+            "4k — 778 credits per 5s clip (premium)",
+        ));
+}
+
+#[tokio::test]
+async fn gen_video_bitrate_on_wrong_model_is_prechecked() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args([
+            "gen",
+            "video",
+            "--model",
+            I2V_MODEL,
+            "--prompt",
+            "x",
+            "--bitrate",
+            "high",
+            "--no-wait",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no bitrate selection"));
+}
+
+#[tokio::test]
+async fn gen_video_400_surfaces_server_detail_verbatim() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/video"))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "type": "https://nolgia.ai/errors/invalid-request",
+            "title": "Invalid request",
+            "status": 400,
+            "detail": "`video_asset_ids` requires a reference-to-video model"
+        })))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["gen", "video", "--prompt", "x", "--no-wait"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`video_asset_ids` requires a reference-to-video model",
+        ));
+}
+
+#[tokio::test]
+async fn gen_video_cost_only_prices_quality_tier() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    run_ok(
+        &api,
+        &[
+            "gen",
+            "video",
+            "--model",
+            R2V_MODEL,
+            "--prompt",
+            "x",
+            "--duration-seconds",
+            "10",
+            "--quality",
+            "4k",
+            "--cost-only",
+        ],
+    )
+    .stdout(predicate::str::contains("1556 credits"));
+}
+
+#[tokio::test]
+async fn gen_image_sends_quality() {
+    let api = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"models": [{
+            "id": "gpt-image-2", "modality": "image", "recommended": true,
+            "quality": {"default": "standard", "options": [
+                {"id": "standard", "credits": 10, "premium": false},
+                {"id": "hd", "credits": 25, "premium": true},
+            ]},
+        }]})))
+        .mount(&api)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/v1/generate/image"))
+        .and(body_partial_json(json!({"quality": "hd"})))
+        .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "--json",
+            "gen",
+            "image",
+            "--model",
+            "gpt-image-2",
+            "--prompt",
+            "x",
+            "--quality",
+            "hd",
+            "--no-wait",
+        ],
+    )
+    .stdout(predicate::str::contains("job_id"));
+}
+
 #[tokio::test]
 async fn status_fetches_job() {
     let api = MockServer::start().await;
@@ -301,6 +563,104 @@ fn assets_tag_requires_tag_or_clear() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("--tag"));
+}
+
+#[tokio::test]
+async fn assets_frame_sends_timestamp() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/assets/{ASSET_ID}/frames")))
+        .and(body_json(json!({"t_seconds": 3.2})))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(asset_json("https://files/frame.png")),
+        )
+        .mount(&api)
+        .await;
+    run_ok(&api, &["assets", "frame", ASSET_ID, "--at", "3.2"])
+        .stdout(predicate::str::contains("frame.png"));
+}
+
+#[tokio::test]
+async fn assets_frame_defaults_to_last_frame() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/assets/{ASSET_ID}/frames")))
+        .and(body_json(json!({})))
+        .respond_with(
+            ResponseTemplate::new(201).set_body_json(asset_json("https://files/last.png")),
+        )
+        .mount(&api)
+        .await;
+    run_ok(&api, &["assets", "frame", ASSET_ID, "--last"])
+        .stdout(predicate::str::contains("last.png"));
+}
+
+#[tokio::test]
+async fn assets_frame_surfaces_server_detail_verbatim() {
+    let api = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/assets/{ASSET_ID}/frames")))
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "type": "https://nolgia.ai/errors/invalid-request",
+            "title": "Invalid request",
+            "status": 400,
+            "detail": "frame extraction requires a video asset"
+        })))
+        .mount(&api)
+        .await;
+    cmd()
+        .arg("--api-url")
+        .arg(api.uri())
+        .args(["assets", "frame", ASSET_ID])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "frame extraction requires a video asset",
+        ));
+}
+
+#[test]
+fn assets_frame_rejects_at_with_last() {
+    cmd()
+        .args([
+            "assets",
+            "frame",
+            ASSET_ID,
+            "--at",
+            "1.5",
+            "--last",
+            "--api-url",
+            "http://127.0.0.1:9",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be used with"));
+}
+
+#[tokio::test]
+async fn models_list_shows_quality_and_reference_capabilities() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    run_ok(&api, &["models", "list"])
+        .stdout(predicate::str::contains("720p/1080p/4k*"))
+        .stdout(predicate::str::contains("video-refs:3"))
+        .stdout(predicate::str::contains("end-frame"));
+}
+
+#[tokio::test]
+async fn models_get_shows_quality_pricing_and_references() {
+    let api = MockServer::start().await;
+    mount_video_models(&api).await;
+    run_ok(&api, &["models", "get", R2V_MODEL])
+        .stdout(predicate::str::contains(
+            "720p — 165 credits per 5s clip (default)",
+        ))
+        .stdout(predicate::str::contains(
+            "4k — 778 credits per 5s clip (premium)",
+        ))
+        .stdout(predicate::str::contains("video-refs <=3"))
+        .stdout(predicate::str::contains("elements <=9"))
+        .stdout(predicate::str::contains("bitrate standard|high"));
 }
 
 #[tokio::test]
@@ -1054,6 +1414,46 @@ fn run_ok(api: &MockServer, args: &[&str]) -> assert_cmd::assert::Assert {
         .args(args)
         .assert()
         .success()
+}
+
+/// Catalog fixture for the quality/reference-capability surface: the
+/// Seedance 2.0 Pro reference-to-video model (quality tiers, video/element
+/// refs, bitrate modes) and its image-to-video sibling (start+end frames,
+/// no refs, no bitrate knob).
+fn video_models_json() -> serde_json::Value {
+    json!({"models": [
+        {
+            "id": R2V_MODEL, "modality": "video", "recommended": true,
+            "cost": {"credits": 165, "unit": "per_clip", "baseline_seconds": 5},
+            "video": {"min_duration": 2, "max_duration": 15, "aspect_ratios": ["16:9", "9:16"], "image_input": false},
+            "quality": {"default": "720p", "options": [
+                {"id": "720p", "credits": 165, "premium": false},
+                {"id": "1080p", "credits": 360, "premium": false},
+                {"id": "4k", "credits": 778, "premium": true},
+            ]},
+            "references": {"start_frame": false, "end_frame": false, "video_refs_max": 3,
+                           "element_refs_max": 9, "audio_refs_max": 3, "bitrate_modes": ["standard", "high"]},
+        },
+        {
+            "id": I2V_MODEL, "modality": "video", "recommended": false,
+            "cost": {"credits": 165, "unit": "per_clip", "baseline_seconds": 5},
+            "video": {"min_duration": 2, "max_duration": 15, "aspect_ratios": ["16:9"], "image_input": true},
+            "quality": {"default": "720p", "options": [
+                {"id": "720p", "credits": 165, "premium": false},
+                {"id": "1080p", "credits": 360, "premium": false},
+            ]},
+            "references": {"start_frame": true, "end_frame": true, "video_refs_max": 0,
+                           "element_refs_max": 0, "audio_refs_max": 0},
+        },
+    ]})
+}
+
+async fn mount_video_models(api: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path("/v1/models"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(video_models_json()))
+        .mount(api)
+        .await;
 }
 
 fn asset_json(url: &str) -> serde_json::Value {

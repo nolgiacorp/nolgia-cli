@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use nolgia_client::types::{
-    AspectRatio, AudioFormat, AudioModel, GenerateAudioRequest, GenerateImageRequest,
-    GenerateVideoRequest, GenerateVideoRequestNegativePrompt, ImageModel, UploadAssetRequest,
-    UploadAssetRequestContentType, UploadAssetRequestFilename, VideoModel, VideoShot,
+    AspectRatio, AudioFormat, AudioModel, BitrateMode, GenerateAudioRequest, GenerateImageRequest,
+    GenerateImageRequestQuality, GenerateVideoRequest, GenerateVideoRequestNegativePrompt,
+    GenerateVideoRequestQuality, ImageModel, UploadAssetRequest, UploadAssetRequestContentType,
+    UploadAssetRequestFilename, VideoModel, VideoShot,
 };
 use serde::Serialize;
 use std::{
@@ -32,6 +33,10 @@ pub struct ImageArgs {
     pub input: Option<PathBuf>,
     #[arg(long)]
     pub out: Option<PathBuf>,
+    /// Quality/resolution tier (model-specific; tiers and per-tier credits
+    /// in `nolgia models get <model>`). Omit for the model's default tier.
+    #[arg(long)]
+    pub quality: Option<String>,
     #[arg(long, default_value_t = false)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -68,6 +73,31 @@ pub struct VideoArgs {
     /// Generate a synchronized audio track (Seedance/Veo)
     #[arg(long, action = clap::ArgAction::Set)]
     pub generate_audio: Option<bool>,
+    /// Quality/resolution tier, e.g. 720p/1080p/4k on Seedance 2.0 Pro.
+    /// Model-specific; tiers and per-tier credits in `nolgia models get
+    /// <model>` (premium tiers cost more). Omit for the default tier.
+    #[arg(long)]
+    pub quality: Option<String>,
+    /// Output bitrate profile (standard|high) on models with a bitrate
+    /// knob (`nolgia models get <model>`)
+    #[arg(long)]
+    pub bitrate: Option<BitrateMode>,
+    /// Reference video for reference-to-video models: the UUID of one of
+    /// your video assets (repeat up to 3). Address them in the prompt as
+    /// @Video1..@Video3. Inputs: MP4/MOV, 480p-720p, 2-15s and 50MB
+    /// combined across all reference videos.
+    #[arg(long = "video-ref", value_name = "ASSET_ID")]
+    pub video_refs: Vec<uuid::Uuid>,
+    /// Element/reference image for reference-to-video models: the UUID of
+    /// one of your image assets (repeat up to 9). Address them in the
+    /// prompt as @Image1..@Image9.
+    #[arg(long = "element", value_name = "ASSET_ID")]
+    pub elements: Vec<uuid::Uuid>,
+    /// Final frame for start+end frame pinning (models with end-frame
+    /// support): an image asset UUID or a local file (uploaded). Requires
+    /// --input (the start frame).
+    #[arg(long = "end-frame", value_name = "ASSET_ID")]
+    pub end_frame: Option<String>,
     /// Print the credit estimate from the live catalog and exit without
     /// creating a job
     #[arg(long, default_value_t = false)]
@@ -121,19 +151,25 @@ pub async fn run(command: GenCommand, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
+    if let Some(tier) = args.quality.as_deref() {
+        super::models::precheck_image_quality(ctx, &args.model.to_string(), tier).await?;
+    }
+    let quality = args
+        .quality
+        .as_deref()
+        .map(GenerateImageRequestQuality::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
     let body: GenerateImageRequest = GenerateImageRequest::builder()
         .model(args.model)
         .prompt(args.prompt)
+        .quality(quality)
         .try_into()
         .context("building image request")?;
-    let job = ctx
-        .client()
-        .generate_image()
-        .body(body)
-        .send()
-        .await
-        .context("submitting image job")?
-        .into_inner();
+    let job = match ctx.client().generate_image().body(body).send().await {
+        Ok(response) => response.into_inner(),
+        Err(err) => return Err(super::api_error(err, "submitting image job").await),
+    };
     if args.no_wait {
         return print_json(&AsyncJob {
             job_id: job.id.to_string(),
@@ -167,14 +203,61 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
                 .map(|s| s.duration_seconds.get())
                 .sum()
         };
-        let quote = super::models::quote_video(ctx, &args.model.to_string(), duration).await?;
+        let quote = super::models::quote_video(
+            ctx,
+            &args.model.to_string(),
+            duration,
+            args.quality.as_deref(),
+        )
+        .await?;
         println!("{quote}");
         return Ok(());
+    }
+    anyhow::ensure!(
+        args.video_refs.len() <= 3,
+        "--video-ref: at most 3 reference videos per request"
+    );
+    anyhow::ensure!(
+        args.elements.len() <= 9,
+        "--element: at most 9 element images per request"
+    );
+    anyhow::ensure!(
+        args.end_frame.is_none() || args.input.is_some(),
+        "--end-frame requires --input (the start frame)"
+    );
+    let uses_capability_flags = args.quality.is_some()
+        || args.bitrate.is_some()
+        || args.end_frame.is_some()
+        || !args.video_refs.is_empty()
+        || !args.elements.is_empty();
+    if uses_capability_flags {
+        super::models::precheck_video_options(
+            ctx,
+            &args.model.to_string(),
+            &super::models::VideoOptions {
+                quality: args.quality.as_deref(),
+                bitrate: args.bitrate,
+                video_refs: args.video_refs.len(),
+                elements: args.elements.len(),
+                end_frame: args.end_frame.is_some(),
+            },
+        )
+        .await?;
     }
     let image_url = match args.input.as_ref() {
         Some(input) => Some(resolve_input_image(input, ctx).await?),
         None => None,
     };
+    let end_image_asset_id = match args.end_frame.as_deref() {
+        Some(end_frame) => Some(resolve_end_frame(end_frame, ctx).await?),
+        None => None,
+    };
+    let quality = args
+        .quality
+        .as_deref()
+        .map(GenerateVideoRequestQuality::try_from)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("--quality: {e}"))?;
     let negative_prompt = args
         .negative_prompt
         .map(GenerateVideoRequestNegativePrompt::try_from)
@@ -186,22 +269,27 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .prompt(args.prompt)
         .negative_prompt(negative_prompt)
         .image_url(image_url)
+        .end_image_asset_id(end_image_asset_id)
         .aspect_ratio(args.aspect_ratio)
         .seed(args.seed)
         .generate_audio(args.generate_audio)
+        .quality(quality)
+        .bitrate_mode(args.bitrate)
         .shots(shots);
     if let Some(duration) = args.duration_seconds {
         builder = builder.duration_seconds(duration);
     }
+    if !args.video_refs.is_empty() {
+        builder = builder.video_asset_ids(Some(args.video_refs));
+    }
+    if !args.elements.is_empty() {
+        builder = builder.element_asset_ids(Some(args.elements));
+    }
     let body: GenerateVideoRequest = builder.try_into().context("building video request")?;
-    let mut job = ctx
-        .client()
-        .generate_video()
-        .body(body)
-        .send()
-        .await
-        .context("submitting video job")?
-        .into_inner();
+    let mut job = match ctx.client().generate_video().body(body).send().await {
+        Ok(response) => response.into_inner(),
+        Err(err) => return Err(super::api_error(err, "submitting video job").await),
+    };
     if args.no_wait || !args.wait {
         return print_json(&AsyncJob {
             job_id: job.id.to_string(),
@@ -318,6 +406,17 @@ async fn resolve_input_image(input: &str, ctx: &CommandContext) -> Result<String
         return Ok(asset.signed_url);
     }
     upload_input_image(&PathBuf::from(input), ctx).await
+}
+
+/// --end-frame accepts an image asset UUID (sent as `end_image_asset_id`)
+/// or a local file path (uploaded to /assets first), mirroring --input.
+async fn resolve_end_frame(input: &str, ctx: &CommandContext) -> Result<uuid::Uuid> {
+    if !Path::new(input).exists() {
+        return uuid::Uuid::parse_str(input).with_context(|| {
+            format!("--end-frame: {input:?} is neither an asset UUID nor an existing file")
+        });
+    }
+    Ok(upload_image_asset(&PathBuf::from(input), ctx).await?.id)
 }
 
 async fn upload_input_image(path: &PathBuf, ctx: &CommandContext) -> Result<String> {

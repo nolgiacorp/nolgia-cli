@@ -5,6 +5,24 @@ the matching GitHub release.
 
 ## Unreleased
 
+- **Quality tiers**: `gen video` and `gen image` gain `--quality` for
+  model-specific resolution tiers (e.g. `720p`/`1080p`/`4k` on Seedance 2.0
+  Pro; premium tiers cost more). `gen video --cost-only` prices the selected
+  tier, and unknown tiers fail fast with the model's available tiers and
+  per-tier credits (premium marked) from the live catalog.
+- **Reference-to-video (Seedance 2.0 Pro)**: `gen video` gains `--video-ref`
+  (reference video asset id, up to 3; MP4/MOV, 480p–720p, 2–15s and 50MB
+  combined), `--element` (element/reference image asset id, up to 9),
+  `--bitrate standard|high`, and `--end-frame` (image asset UUID or local
+  file; requires `--input`) for start+end frame pinning. Reference/quality
+  flags are pre-validated against the model's published capabilities where
+  cheap, and server-side capability 400s are surfaced verbatim.
+- **`assets frame <id> [--at SECONDS|--last] [--out FILE]`** extracts a still
+  frame from a video asset as a new image asset (omit `--at` for the last
+  frame — handy as the `--input` of a follow-up clip).
+- **`models list`/`get` show quality tiers and reference capabilities**
+  (per-tier credits with default/premium markers, start/end frame support,
+  video/element/audio reference caps, bitrate modes).
 - **No more keychain password prompts**: login tokens now default to a
   `0600` file at `~/.config/nolgia/tokens.json` (like `gh`/`gcloud`)
   instead of the OS keyring. On macOS, keychain items are ACL'd to the
