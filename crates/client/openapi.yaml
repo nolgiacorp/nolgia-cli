@@ -689,6 +689,53 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /assets/{id}/frames:
+    post:
+      tags: [Assets]
+      operationId: extractAssetFrame
+      summary: Extract a still frame from a video asset as a new image asset.
+      description: >
+        Extracts a single frame from one of the current user's video assets
+        with ffmpeg and stores it as a new IMAGE asset (model
+        `frame-extract`, tagged `frame`, linked back to the source asset via
+        its generation metadata). Omit `t_seconds` to grab the LAST frame —
+        useful as the `image_url` (start frame) of a follow-up
+        image-to-video generation to chain clips seamlessly. Returns 400 for
+        non-video assets, 422 when no frame can be decoded at the requested
+        timestamp, and 501 when ffmpeg is not available on the deployment.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExtractAssetFrameRequest'
+      responses:
+        '201':
+          description: Frame extracted; the new image asset with a fresh signed URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Asset'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '422':
+          $ref: '#/components/responses/ProblemResponse'
+        '501':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /assets/uploads:
     post:
       tags: [Assets]
@@ -2981,6 +3028,57 @@ components:
           $ref: '#/components/schemas/AudioCapabilities'
         quality:
           $ref: '#/components/schemas/QualityCapabilities'
+        references:
+          $ref: '#/components/schemas/ReferenceCapabilities'
+
+    ReferenceCapabilities:
+      type: object
+      additionalProperties: false
+      description: |
+        Per-model reference-media support, published for every video model so
+        clients can gate controls to exactly what the selected model can
+        achieve. The API enforces the same limits: parameters outside a
+        model's declared capabilities are rejected with a 400 naming the
+        capability.
+      required: [start_frame, end_frame, video_refs_max, element_refs_max, audio_refs_max]
+      properties:
+        start_frame:
+          type: boolean
+          description: |
+            Whether the model accepts an `image_url` start frame. Dedicated
+            image-to-video variants require one; models like Veo and Omni
+            Flash take one optionally alongside the text prompt.
+        end_frame:
+          type: boolean
+          description: |
+            Whether the model accepts `end_image_url` / `end_image_asset_id`
+            alongside `image_url` (start+end frame pinning — Seedance 2.0
+            Pro i2v and Kling v3 i2v variants).
+        video_refs_max:
+          type: integer
+          minimum: 0
+          description: |
+            Maximum reference videos per request (`video_asset_ids` +
+            `video_urls` combined). 0 when the model takes no reference
+            videos.
+        element_refs_max:
+          type: integer
+          minimum: 0
+          description: |
+            Maximum element/reference images per request
+            (`element_asset_ids` + `image_urls` combined). 0 when
+            unsupported.
+        audio_refs_max:
+          type: integer
+          minimum: 0
+          description: |
+            Maximum reference audio tracks per request (`audio_asset_ids` +
+            `audio_urls` combined, each at most 15s). 0 when unsupported.
+        bitrate_modes:
+          type: array
+          description: Selectable `bitrate_mode` values; absent when the model has no bitrate knob.
+          items:
+            $ref: '#/components/schemas/BitrateMode'
 
     ModelCost:
       type: object
@@ -3089,7 +3187,9 @@ components:
           description: |
             Whether the model accepts an `image_url`. Dedicated image-to-video
             variants require one; models like Veo and Omni Flash take one
-            optionally alongside the text prompt.
+            optionally alongside the text prompt. Mirrors
+            `references.start_frame`, which carries the full reference-media
+            capability set.
 
     AudioCapabilities:
       type: object
@@ -3279,6 +3379,7 @@ components:
         - fal-ai/kling-video/v3/pro/image-to-video
         - fal-ai/bytedance/seedance/v2/pro/text-to-video
         - fal-ai/bytedance/seedance/v2/pro/image-to-video
+        - fal-ai/bytedance/seedance/v2/pro/reference-to-video
         - veo-3.1
         - veo-3.1-fast
         - omni-flash
@@ -3289,7 +3390,30 @@ components:
 
     AspectRatio:
       type: string
-      enum: ['16:9', '9:16', '1:1', '4:3', '3:4']
+      enum: ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9']
+
+    BitrateMode:
+      type: string
+      description: >-
+        Output bitrate profile for models that support it (see the model's
+        `video.bitrate_modes` on `GET /models`; currently Seedance 2.0 Pro
+        reference-to-video). `standard` is the provider default; `high`
+        trades larger files for higher visual fidelity. Rejected (400) on
+        models without bitrate selection.
+      enum: [standard, high]
+
+    ExtractAssetFrameRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        t_seconds:
+          type: number
+          nullable: true
+          minimum: 0
+          description: >-
+            Timestamp (seconds from the start) of the frame to extract.
+            Omit to extract the LAST frame of the video.
+          examples: [2.5]
 
     GenerateImageRequest:
       type: object
@@ -3432,6 +3556,12 @@ components:
           type: string
           minLength: 1
           maxLength: 4000
+          description: >-
+            Text prompt. On reference-to-video models, address the supplied
+            references as `@Video1`..`@Video3` and `@Image1`..`@Image9`, and
+            optionally use `[0-3s]`-style timeline markers to time actions;
+            these tokens are passed through verbatim (including inside
+            multi-shot `shots[]` prompts).
         negative_prompt:
           type: string
           nullable: true
@@ -3441,6 +3571,100 @@ components:
           nullable: true
           format: uri
           description: Required for image-to-video models; ignored for text-to-video.
+        end_image_url:
+          type: string
+          nullable: true
+          format: uri
+          description: >-
+            Final-frame image (https URL) for start+end frame pinning on
+            image-to-video models that support it (Seedance 2.0 Pro i2v).
+            Requires `image_url` (the start frame). Mutually exclusive with
+            `end_image_asset_id`.
+        end_image_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            One of your image assets to use as the final frame (server
+            resolves it to a signed URL). Same semantics as `end_image_url`;
+            provide at most one of the two.
+        video_asset_ids:
+          type: array
+          nullable: true
+          maxItems: 3
+          description: >-
+            Reference videos for reference-to-video models
+            (`fal-ai/bytedance/seedance/v2/pro/reference-to-video`), given as
+            ids of your video assets — the server resolves each to a signed
+            URL and forwards them as the provider's `video_urls`. Address
+            them in the prompt as `@Video1`..`@Video3` (optionally with
+            `[0-3s]`-style timeline markers). Provider constraints, enforced
+            where asset metadata allows: at most 3 videos combined with
+            `video_urls`, MP4/MOV, 480p–720p input, 2–15 seconds combined,
+            50MB total. This is the recommended way to pass reference videos.
+          items:
+            type: string
+            format: uuid
+        video_urls:
+          type: array
+          nullable: true
+          maxItems: 3
+          description: >-
+            Raw https reference-video URLs, for callers that host media
+            outside Nolgia. Counted against the same 3-video cap as
+            `video_asset_ids` (external URLs cannot be validated for
+            duration/size/resolution server-side — the provider rejects
+            violations). Prefer `video_asset_ids`.
+          items:
+            type: string
+            format: uri
+        element_asset_ids:
+          type: array
+          nullable: true
+          maxItems: 9
+          description: >-
+            Element/reference images for reference-to-video models, given as
+            ids of your image assets — resolved to signed URLs and forwarded
+            as the provider's `image_urls`. Address them in the prompt as
+            `@Image1`..`@Image9`. At most 9 combined with `image_urls`.
+          items:
+            type: string
+            format: uuid
+        image_urls:
+          type: array
+          nullable: true
+          maxItems: 9
+          description: >-
+            Raw https element-image URLs. Counted against the same 9-image
+            cap as `element_asset_ids`. Prefer `element_asset_ids`.
+          items:
+            type: string
+            format: uri
+        audio_asset_ids:
+          type: array
+          nullable: true
+          maxItems: 3
+          description: >-
+            Reference audio tracks for reference-to-video models, given as
+            ids of your audio assets — resolved to signed URLs and forwarded
+            as the provider's `audio_urls`. At most 3 combined with
+            `audio_urls`; each track at most 15 seconds (enforced where the
+            asset's stored duration allows).
+          items:
+            type: string
+            format: uuid
+        audio_urls:
+          type: array
+          nullable: true
+          maxItems: 3
+          description: >-
+            Raw https reference-audio URLs. Counted against the same 3-track
+            cap as `audio_asset_ids`. Prefer `audio_asset_ids`.
+          items:
+            type: string
+            format: uri
+        bitrate_mode:
+          $ref: '#/components/schemas/BitrateMode'
         aspect_ratio:
           $ref: '#/components/schemas/AspectRatio'
         duration_seconds:
