@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use nolgia_client::types::{Modality, Model};
+use nolgia_client::types::{BitrateMode, Modality, Model, QualityCapabilities};
 
 use super::CommandContext;
 use crate::output::{OutputFormat, print_json};
@@ -78,48 +78,124 @@ fn cost_line(model: &Model) -> String {
 
 fn capability_line(model: &Model) -> String {
     if let Some(video) = &model.video {
-        let durations = if !video.durations.is_empty() {
-            video
-                .durations
-                .iter()
-                .map(|d| d.to_string())
-                .collect::<Vec<_>>()
-                .join("/")
-                + "s"
+        let mut parts: Vec<String> = Vec::new();
+        if !video.durations.is_empty() {
+            parts.push(
+                video
+                    .durations
+                    .iter()
+                    .map(|d| d.to_string())
+                    .collect::<Vec<_>>()
+                    .join("/")
+                    + "s",
+            );
         } else if let (Some(min), Some(max)) = (video.min_duration, video.max_duration) {
-            format!("{min}-{max}s")
-        } else {
-            String::new()
-        };
+            parts.push(format!("{min}-{max}s"));
+        }
         let ratios = video
             .aspect_ratios
             .iter()
             .map(|r| format!("{r:?}").replace('N', "").replace('_', ":"))
             .collect::<Vec<_>>()
             .join(" ");
-        let image_input = if video.image_input == Some(true) {
-            "  image-input"
-        } else {
-            ""
-        };
-        return format!("{durations}  {ratios}{image_input}")
-            .trim()
-            .to_string();
+        if !ratios.is_empty() {
+            parts.push(ratios);
+        }
+        if video.image_input == Some(true) {
+            parts.push("image-input".to_string());
+        }
+        if let Some(quality) = &model.quality {
+            parts.push(quality_summary(quality));
+        }
+        if let Some(refs) = &model.references {
+            if refs.end_frame {
+                parts.push("end-frame".to_string());
+            }
+            if refs.video_refs_max > 0 {
+                parts.push(format!("video-refs:{}", refs.video_refs_max));
+            }
+            if refs.element_refs_max > 0 {
+                parts.push(format!("elements:{}", refs.element_refs_max));
+            }
+            if !refs.bitrate_modes.is_empty() {
+                parts.push("bitrate".to_string());
+            }
+        }
+        return parts.join("  ");
     }
     if let Some(audio) = &model.audio
         && !audio.voices.is_empty()
     {
         return format!("{} voices", audio.voices.len());
     }
+    if let Some(quality) = &model.quality {
+        return quality_summary(quality);
+    }
     String::new()
 }
 
+/// Compact tier summary for one-line listings, e.g. `720p/1080p/4k*`
+/// (`*` marks premium tiers).
+fn quality_summary(quality: &QualityCapabilities) -> String {
+    quality
+        .options
+        .iter()
+        .map(|o| {
+            if o.premium {
+                format!("{}*", o.id)
+            } else {
+                o.id.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// Per-tier pricing detail, e.g. `720p — 240 credits per 5s clip (default)`.
+fn quality_lines(model: &Model, quality: &QualityCapabilities) -> Vec<String> {
+    let unit = match model.cost.as_ref().and_then(|c| c.baseline_seconds) {
+        Some(base) => format!("credits per {base}s clip"),
+        None => "credits".to_string(),
+    };
+    quality
+        .options
+        .iter()
+        .map(|option| {
+            let mut line = format!("{} — {} {unit}", option.id, option.credits);
+            if quality.default.as_deref() == Some(option.id.as_str()) {
+                line.push_str(" (default)");
+            }
+            if option.premium {
+                line.push_str(" (premium)");
+            }
+            line
+        })
+        .collect()
+}
+
+fn bitrate_list(modes: &[BitrateMode]) -> String {
+    modes
+        .iter()
+        .map(|m| m.to_string())
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// The tiers a model offers, phrased for error messages: credits and
+/// premium/default markers included so the user can pick without another
+/// lookup.
+fn quality_choices(model: &Model, quality: &QualityCapabilities) -> String {
+    quality_lines(model, quality).join(", ")
+}
+
 /// Estimate the credit charge for a video generation from the live catalog.
-/// Mirrors the server: ceil(credits * duration / baseline_seconds).
+/// Mirrors the server: ceil(credits * duration / baseline_seconds), where
+/// `credits` is the selected quality tier's rate when `--quality` is given.
 pub async fn quote_video(
     ctx: &CommandContext,
     model_id: &str,
     duration_seconds: u64,
+    quality: Option<&str>,
 ) -> Result<String> {
     let models = fetch(ctx).await?;
     let model = models.iter().find(|m| m.id == model_id).with_context(|| {
@@ -130,13 +206,128 @@ pub async fn quote_video(
             "{model_id}: pricing pending — the server will quote at submit time"
         ));
     };
+    let (base_credits, tier_note) = match quality {
+        Some(tier) => {
+            let option = check_quality(model, tier)?;
+            (option.credits, format!(", {tier}"))
+        }
+        None => (cost.credits, String::new()),
+    };
     let credits = match cost.baseline_seconds {
-        Some(base) => (cost.credits.get() * duration_seconds).div_ceil(base.get()),
-        None => cost.credits.get(),
+        Some(base) => (base_credits.get() * duration_seconds).div_ceil(base.get()),
+        None => base_credits.get(),
     };
     Ok(format!(
-        "{credits} credits ({model_id}, {duration_seconds}s)"
+        "{credits} credits ({model_id}, {duration_seconds}s{tier_note})"
     ))
+}
+
+/// Reference/quality parameters of a pending `gen video` request, for
+/// pre-validation against the catalog.
+pub struct VideoOptions<'a> {
+    pub quality: Option<&'a str>,
+    pub bitrate: Option<BitrateMode>,
+    pub video_refs: usize,
+    pub elements: usize,
+    pub end_frame: bool,
+}
+
+/// Best-effort pre-validation of quality/reference options against the live
+/// catalog, producing friendlier errors than the server's 400 (e.g. listing
+/// the model's tiers with credits). Never blocks on catalog problems — an
+/// unreachable catalog or unknown model falls through to server validation.
+pub async fn precheck_video_options(
+    ctx: &CommandContext,
+    model_id: &str,
+    options: &VideoOptions<'_>,
+) -> Result<()> {
+    let Ok(models) = fetch(ctx).await else {
+        return Ok(());
+    };
+    let Some(model) = models.iter().find(|m| m.id == model_id) else {
+        return Ok(());
+    };
+    if let Some(tier) = options.quality {
+        check_quality(model, tier)?;
+    }
+    let Some(refs) = &model.references else {
+        return Ok(());
+    };
+    if options.video_refs as u64 > refs.video_refs_max {
+        anyhow::bail!(match refs.video_refs_max {
+            0 => format!(
+                "--video-ref: {model_id} takes no reference videos — use a \
+                 reference-to-video model (see `nolgia models list`)"
+            ),
+            max => format!("--video-ref: {model_id} accepts at most {max} reference videos"),
+        });
+    }
+    if options.elements as u64 > refs.element_refs_max {
+        anyhow::bail!(match refs.element_refs_max {
+            0 => format!("--element: {model_id} takes no element/reference images"),
+            max => format!("--element: {model_id} accepts at most {max} element images"),
+        });
+    }
+    if options.end_frame && !refs.end_frame {
+        anyhow::bail!(
+            "--end-frame: {model_id} does not support end-frame pinning \
+             (see `references.end_frame` in `nolgia models get {model_id}`)"
+        );
+    }
+    if let Some(mode) = options.bitrate
+        && !refs.bitrate_modes.contains(&mode)
+    {
+        anyhow::bail!(match refs.bitrate_modes.is_empty() {
+            true => format!("--bitrate: {model_id} has no bitrate selection"),
+            false => format!(
+                "--bitrate: {model_id} supports {}",
+                bitrate_list(&refs.bitrate_modes)
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Validate a quality tier against the model's published options; on a miss,
+/// list the available tiers with credits (premium/default marked).
+pub fn check_quality<'m>(
+    model: &'m Model,
+    tier: &str,
+) -> Result<&'m nolgia_client::types::QualityOption> {
+    let Some(quality) = &model.quality else {
+        anyhow::bail!(
+            "--quality: {} has no quality tiers — omit --quality for its single fixed quality",
+            model.id
+        );
+    };
+    quality
+        .options
+        .iter()
+        .find(|o| o.id == tier)
+        .with_context(|| {
+            format!(
+                "--quality {tier:?}: not a tier of {}; available: {}",
+                model.id,
+                quality_choices(model, quality)
+            )
+        })
+}
+
+/// Best-effort `--quality` pre-validation for image models (the mechanism is
+/// live, but no catalog image model declares tiers yet — expect the
+/// no-tiers error until one does). Skips silently on catalog problems.
+pub async fn precheck_image_quality(
+    ctx: &CommandContext,
+    model_id: &str,
+    tier: &str,
+) -> Result<()> {
+    let Ok(models) = fetch(ctx).await else {
+        return Ok(());
+    };
+    let Some(model) = models.iter().find(|m| m.id == model_id) else {
+        return Ok(());
+    };
+    check_quality(model, tier).map(|_| ())
 }
 
 async fn list(args: ListArgs, ctx: &CommandContext) -> Result<()> {
@@ -181,6 +372,37 @@ async fn get(args: GetArgs, ctx: &CommandContext) -> Result<()> {
             let caps = capability_line(model);
             if !caps.is_empty() {
                 println!("  supports:    {caps}");
+            }
+            if let Some(quality) = &model.quality {
+                let mut label = "quality:    ";
+                for line in quality_lines(model, quality) {
+                    println!("  {label} {line}");
+                    label = "            ";
+                }
+            }
+            if let Some(refs) = &model.references {
+                let mut parts: Vec<String> = Vec::new();
+                if refs.start_frame {
+                    parts.push("start-frame".to_string());
+                }
+                if refs.end_frame {
+                    parts.push("end-frame".to_string());
+                }
+                if refs.video_refs_max > 0 {
+                    parts.push(format!("video-refs <={}", refs.video_refs_max));
+                }
+                if refs.element_refs_max > 0 {
+                    parts.push(format!("elements <={}", refs.element_refs_max));
+                }
+                if refs.audio_refs_max > 0 {
+                    parts.push(format!("audio-refs <={}", refs.audio_refs_max));
+                }
+                if !refs.bitrate_modes.is_empty() {
+                    parts.push(format!("bitrate {}", bitrate_list(&refs.bitrate_modes)));
+                }
+                if !parts.is_empty() {
+                    println!("  references:  {}", parts.join(", "));
+                }
             }
             if let Some(audio) = &model.audio
                 && !audio.voices.is_empty()

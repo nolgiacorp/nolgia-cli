@@ -112,6 +112,30 @@ nolgia gen video --model fal-ai/kling-video/v3/pro/image-to-video \
   --input <asset-uuid> --prompt "she walks out of frame" --out shot2.mp4
 ```
 
+### Reference-to-video (Seedance 2.0 Pro)
+
+Remix your own footage: `--video-ref` supplies reference videos (asset UUIDs, repeat up to 3) and `--element` supplies element/reference images (up to 9). Address them in the prompt as `@Video1`..`@Video3` and `@Image1`..`@Image9`, optionally with `[0-3s]`-style timeline markers. Reference-video inputs must be MP4/MOV, 480p–720p, 2–15 seconds and 50MB combined across all reference videos; the reference-to-video model needs at least one video reference:
+
+```bash
+nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/reference-to-video \
+  --video-ref <video-asset-uuid> --element <image-asset-uuid> \
+  --prompt "@Video1 restaged in the style of @Image1, [0-3s] slow push-in" \
+  --quality 1080p --bitrate high --out remix.mp4
+```
+
+`--quality` picks a model-specific resolution tier (e.g. `720p`/`1080p`/`4k` on Seedance 2.0 Pro) — per-tier credits in `nolgia models get <model>`, premium tiers cost more. It also exists on `gen image` for image models that declare tiers. `--bitrate standard|high` selects the output bitrate profile on models with a bitrate knob.
+
+### Pin the final frame, chain clips seamlessly
+
+On models with end-frame support, `--end-frame` (an image asset UUID or a local file) pins the last frame alongside the `--input` start frame. Combine it with `nolgia assets frame`, which extracts a still from a video asset as a new image asset (omit `--at` for the last frame), to make one clip flow into the next:
+
+```bash
+last=$(nolgia assets frame <clip1-asset-uuid> --json | jq -r .id)  # last frame of clip 1
+nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/image-to-video \
+  --input "$last" --end-frame portrait.png \
+  --prompt "she walks toward the window as dusk falls" --out clip2.mp4
+```
+
 ### Know the cost before you spend
 
 ```bash
@@ -119,6 +143,8 @@ $ nolgia gen video --model fal-ai/bytedance/seedance/v2/pro/text-to-video \
     --duration-seconds 12 --prompt "..." --cost-only
 365 credits (fal-ai/bytedance/seedance/v2/pro/text-to-video, 12s)
 ```
+
+`--cost-only` prices the selected `--quality` tier too.
 
 ### Hero-quality shot (Veo 3.1)
 
@@ -148,7 +174,7 @@ nolgia models list --modality video
 nolgia models get fal-ai/bytedance/seedance/v2/pro/text-to-video
 ```
 
-Current video lineup: **Kling v3** (standard/master/pro, 3–15s, the workhorse), **Seedance v2 Pro** (4–15s, multi-shot + native audio, cinematic), **Veo 3.1 / 3.1-fast** (4/6/8s, hero quality / fast previz) — each with an image-to-video variant (except Veo). Defaults: `flux-pro` (image), `fal-ai/stable-audio-25/text-to-audio` (audio), `fal-ai/kling-video/v3/text-to-video` (video).
+Current video lineup: **Kling v3** (standard/master/pro, 3–15s, the workhorse), **Seedance v2 Pro** (4–15s, multi-shot + native audio, cinematic, 720p/1080p/4k quality tiers, plus a reference-to-video variant), **Veo 3.1 / 3.1-fast** (4/6/8s, hero quality / fast previz) — each with an image-to-video variant (except Veo). The catalog also publishes per-model quality tiers and reference capabilities (start/end frame, video/element/audio reference caps, bitrate modes) — see `nolgia models get <id>`. Defaults: `flux-pro` (image), `fal-ai/stable-audio-25/text-to-audio` (audio), `fal-ai/kling-video/v3/text-to-video` (video).
 
 ## AI agents & skills
 

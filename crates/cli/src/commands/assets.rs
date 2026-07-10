@@ -18,6 +18,8 @@ pub enum AssetsCommand {
     Upload(UploadAssetArgs),
     /// Replace an asset's full tag set
     Tag(TagAssetArgs),
+    /// Extract a still frame from a video asset as a new image asset
+    Frame(FrameAssetArgs),
 }
 
 #[derive(Args, Debug)]
@@ -65,6 +67,24 @@ pub struct TagAssetArgs {
     pub clear: bool,
 }
 
+#[derive(Args, Debug)]
+#[command(after_help = "Omitting --at extracts the LAST frame — useful as the \
+--input (start frame) of a follow-up image-to-video generation to chain \
+clips seamlessly.")]
+pub struct FrameAssetArgs {
+    /// A video asset to extract the frame from
+    pub asset_id: Uuid,
+    /// Timestamp in seconds (from the start) of the frame to extract
+    #[arg(long, value_name = "SECONDS")]
+    pub at: Option<f64>,
+    /// Extract the last frame (the default when --at is omitted)
+    #[arg(long, conflicts_with = "at")]
+    pub last: bool,
+    /// Also download the extracted frame to this path
+    #[arg(long)]
+    pub out: Option<PathBuf>,
+}
+
 pub async fn run(command: AssetsCommand, ctx: &CommandContext) -> Result<()> {
     match command {
         AssetsCommand::List(args) => list(args, ctx).await,
@@ -72,6 +92,7 @@ pub async fn run(command: AssetsCommand, ctx: &CommandContext) -> Result<()> {
         AssetsCommand::Delete(args) => delete(args, ctx).await,
         AssetsCommand::Upload(args) => upload(args, ctx).await,
         AssetsCommand::Tag(args) => tag(args, ctx).await,
+        AssetsCommand::Frame(args) => frame(args, ctx).await,
     }
 }
 
@@ -192,6 +213,30 @@ async fn tag(args: TagAssetArgs, ctx: &CommandContext) -> Result<()> {
         OutputFormat::Text => {
             let tags: Vec<&str> = asset.tags.iter().map(|t| t.as_str()).collect();
             println!("{} tags: [{}]", asset.id, tags.join(", "));
+            Ok(())
+        }
+    }
+}
+
+async fn frame(args: FrameAssetArgs, ctx: &CommandContext) -> Result<()> {
+    let mut request = ctx.client().extract_asset_frame().id(args.asset_id);
+    if let Some(t_seconds) = args.at {
+        request = request.body_map(|body| body.t_seconds(Some(t_seconds)));
+    }
+    let asset = match request.send().await {
+        Ok(response) => response.into_inner(),
+        Err(err) => return Err(super::api_error(err, "extracting frame").await),
+    };
+    if let Some(out) = args.out.as_ref() {
+        super::r#gen::download(&asset.signed_url, out).await?;
+    }
+    match ctx.format() {
+        OutputFormat::Json => print_json(&asset),
+        OutputFormat::Text => {
+            println!("{} {} {}", asset.id, asset.modality, asset.signed_url);
+            if let Some(out) = args.out {
+                println!("wrote {}", out.display());
+            }
             Ok(())
         }
     }
