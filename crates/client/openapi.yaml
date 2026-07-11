@@ -1478,8 +1478,16 @@ paths:
           master track. Asset references are placed by the asset's actual
           modality; unresolvable references are skipped with a warning.
         - Edits overlay v2: element overrides (`start`/`duration`/`track`/
-          `hidden`/`srcOffset`) and additions (kind `media` with `assetId` or
-          `path`; kind `text`).
+          `hidden`/`srcOffset`/`muted`) and additions (kind `media` with
+          `assetId` or `path`; kind `text`). A `muted` element (or added
+          clip) renders silent — its embedded audio is stripped. Optional
+          top-level `tracks` toggles apply per section by a clip's effective
+          track index: `tracks.video.<idx>.hidden` skips those clips,
+          `tracks.video.<idx>.muted` strips their audio, and
+          `tracks.audio.<idx>.muted`/`.hidden` drops those audio items from
+          the mix. Hidden/muted items still reserve their timeline extent, so
+          the exported duration is unchanged. The overlay's `unlinked` field
+          is editor-only and ignored by the renderer.
         - Pure text elements (an element whose content is plain text with no
           child elements) and text additions — rendered as animated titles
           with basic styling (white text on a dark pill, safe-zone margin).
@@ -2003,6 +2011,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AgentMessageList'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/followups:
+    post:
+      tags: [Agent]
+      operationId: suggestAgentFollowups
+      summary: Suggest short next-step follow-up prompts for a chat exchange.
+      description: >
+        Given the most recent user message and the assistant's reply, returns
+        up to 3 SHORT, imperative, tap-to-send next-step prompts a user could
+        pick to continue the conversation (e.g. "Make the intro punchier",
+        "Turn this into a 15s vertical cut", "Add captions"). This is a
+        best-effort UX affordance: it is not credit-gated, uses a small fast
+        model with a short upstream timeout, and NEVER fails the caller's
+        flow — whenever the model is unavailable, errors, times out, or
+        returns nothing usable it responds `200` with an empty `suggestions`
+        array. Browser (JWT) sessions only — PATs are rejected.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentFollowupsRequest'
+      responses:
+        '200':
+          description: >
+            Suggested follow-up prompts (0 to 3). An empty array is a normal,
+            successful response when no usable suggestions were produced.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentFollowupsResponse'
         '400':
           $ref: '#/components/responses/ProblemResponse'
         '401':
@@ -3473,6 +3520,14 @@ components:
             minLength: 1
             maxLength: 40
           examples: [['hero', 'draft']]
+        project_id:
+          type: string
+          format: uuid
+          description: >-
+            Files the generated asset(s) into this project at creation. The
+            project must exist and belong to the caller (400 otherwise).
+            Honored on every auth channel (JWT and PAT), and takes precedence
+            over server-side agent-session attribution.
 
     GenerateImageResponse:
       type: object
@@ -3530,6 +3585,14 @@ components:
             minLength: 1
             maxLength: 40
           examples: [['hero', 'draft']]
+        project_id:
+          type: string
+          format: uuid
+          description: >-
+            Files the generated asset into this project at creation. The
+            project must exist and belong to the caller (400 otherwise).
+            Honored on every auth channel (JWT and PAT), and takes precedence
+            over server-side agent-session attribution.
 
     GenerateAudioResponse:
       type: object
@@ -3720,6 +3783,15 @@ components:
             minLength: 1
             maxLength: 40
           examples: [['hero', 'draft']]
+        project_id:
+          type: string
+          format: uuid
+          description: >-
+            Files the generated asset into this project at creation (the
+            async video asset lands in the project when the job completes).
+            The project must exist and belong to the caller (400 otherwise).
+            Honored on every auth channel (JWT and PAT), and takes precedence
+            over server-side agent-session attribution.
 
     VideoShot:
       type: object
@@ -3862,6 +3934,33 @@ components:
             Media duration in seconds for video/audio assets. Recorded at
             creation time for generated videos and backfilled asynchronously
             (ffprobe) for uploaded/legacy assets; null until known.
+        has_audio:
+          type: boolean
+          nullable: true
+          description: >
+            Whether the asset's media carries an audio stream. `true` for audio
+            assets and for video/audio media with an audio track; `false` for
+            images and for video definitively without audio; `null`/absent when
+            not yet probed (legacy/uploaded media awaiting the async media
+            sweep) or not applicable. Recorded at creation for audio (`true`)
+            and image (`false`) assets; video is determined by the sweep
+            (ffprobe).
+        waveform_peaks:
+          type: array
+          nullable: true
+          description: >
+            Downsampled, peak-normalized amplitude envelope of the asset's audio
+            for client-side waveform rendering. Each value is the RMS amplitude
+            of one contiguous window, normalized so the loudest window is `1.0`
+            and rounded to 3 decimals; up to ~400 points for a full-length clip
+            (fewer for very short clips). Present only for audio-bearing assets
+            once the media sweep has computed it (ffmpeg PCM decode); `null` for
+            assets with no audio or not yet probed. Populated on every asset
+            read that carries it (list and single-asset).
+          items:
+            type: number
+            minimum: 0
+            maximum: 1
         thumbnail_url:
           type: string
           format: uri
@@ -4883,6 +4982,37 @@ components:
           type: string
           description: The agent's reply text.
 
+    AgentFollowupsRequest:
+      type: object
+      additionalProperties: false
+      required: [user_message, agent_reply]
+      properties:
+        user_message:
+          type: string
+          description: >
+            The most recent user prompt in the exchange. Trimmed and capped
+            server-side before use; empty/whitespace is rejected with 400.
+        agent_reply:
+          type: string
+          description: >
+            The assistant's reply to that prompt. Trimmed and capped
+            server-side before use; empty/whitespace is rejected with 400.
+
+    AgentFollowupsResponse:
+      type: object
+      additionalProperties: false
+      required: [suggestions]
+      properties:
+        suggestions:
+          type: array
+          description: >
+            0 to 3 short (<= ~80 chars), imperative, concrete next-step
+            prompts. Empty when the model produced nothing usable — this is a
+            successful (200) response, never an error.
+          maxItems: 3
+          items:
+            type: string
+
     SubmitAgentMessageRequest:
       type: object
       additionalProperties: false
@@ -5016,6 +5146,14 @@ components:
             linked, relayed turns carry the project's context (name and
             auto-tags) and assets created during a turn are associated to
             the project.
+        preset_slug:
+          type: string
+          nullable: true
+          description: >
+            Preset this session runs under, or null. Soft reference by slug
+            (like ability_slug): relayed turns gain the preset's guardrails
+            and output context while the preset exists and is public; a
+            later-deleted or held (private) preset is skipped gracefully.
         archived_at:
           type: string
           format: date-time
@@ -5060,6 +5198,13 @@ components:
           type: string
           format: uuid
           description: Project (owned by the caller) to scope the session to.
+        preset_slug:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
+          description: >-
+            Preset to run the session under. Must name an existing public
+            preset (400 otherwise); the agent receives the preset's
+            guardrails and output context on every turn.
 
     UpdateAgentSessionRequest:
       type: object
@@ -5524,6 +5669,15 @@ components:
           nullable: true
           description: Marketplace ability powering this preset, when there is one. Soft reference — not validated against the abilities catalog.
           examples: ['ugc']
+        guardrails:
+          type: string
+          description: >-
+            Style/scope constraints phrased as instructions to a creative
+            agent (what style to hold, what output type to produce, what to
+            decline as out of scope). Injected into the relayed turn preamble
+            of chat sessions created under this preset. Empty when the preset
+            defines none. Always emitted by the server; optional in the
+            schema so pre-existing client fixtures stay valid.
         target:
           $ref: '#/components/schemas/PresetTarget'
         sort_order:
@@ -5577,6 +5731,13 @@ components:
           type: string
           nullable: true
           pattern: '^[a-z0-9][a-z0-9-]{0,63}$'
+        guardrails:
+          type: string
+          maxLength: 4000
+          description: >-
+            Style/scope constraints phrased as instructions to a creative
+            agent, injected into turns of chat sessions created under this
+            preset. Defaults to empty when omitted.
         target:
           $ref: '#/components/schemas/PresetTarget'
         sort_order:
