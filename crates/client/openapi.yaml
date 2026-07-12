@@ -2200,6 +2200,37 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /agent/sessions/{id}/assets:
+    get:
+      tags: [Agent]
+      operationId: listAgentSessionAssets
+      summary: List the media a chat session's completed turns produced.
+      description: >
+        Returns the assets created during the session's completed agent turns
+        (each turn's active window), newest first and de-duplicated by asset
+        id, so a reload can re-render the session's generated media. The
+        session must belong to the caller (`404` otherwise).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The session's produced assets, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentSessionAssetList'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /agent/steps:
     get:
       tags: [Agent]
@@ -2238,6 +2269,18 @@ paths:
             minimum: 1
             maximum: 200
             default: 100
+        - name: agent_message_id
+          in: query
+          required: false
+          description: >
+            When set, return the durably persisted steps of that completed
+            agent reply row instead of proxying the live session, so a reload
+            recovers the turn's steps after the pod has rolled or dropped the
+            session. Returns `200` with an empty list when no steps are stored
+            for the id (including when it is not the caller's).
+          schema:
+            type: string
+            format: uuid
       responses:
         '200':
           description: Sanitized steps, oldest first.
@@ -5263,6 +5306,41 @@ components:
           description: Sanitized steps in chronological order (oldest first).
           items:
             $ref: '#/components/schemas/AgentStep'
+
+    AgentSessionAsset:
+      type: object
+      additionalProperties: false
+      required: [id]
+      description: >
+        One asset a chat session's completed turns produced. A light identity
+        for the session gallery, not the full asset resource; fetch
+        `GET /assets/{id}` for a fresh signed download URL and metadata.
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: The asset id.
+        type:
+          type: string
+          description: The asset's media kind (e.g. `image`, `video`, `audio`).
+        url:
+          type: string
+          description: The asset's stored object URL as recorded at creation (not a fresh signed URL).
+        created_at:
+          type: string
+          format: date-time
+          description: When the asset was created.
+
+    AgentSessionAssetList:
+      type: object
+      additionalProperties: false
+      required: [assets]
+      properties:
+        assets:
+          type: array
+          description: The session's produced assets, newest first.
+          items:
+            $ref: '#/components/schemas/AgentSessionAsset'
 
     AgentCredentials:
       type: object
