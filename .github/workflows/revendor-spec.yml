@@ -92,6 +92,7 @@ jobs:
           cargo fmt --all || true
 
       - name: Create pull request
+        id: cpr
         if: steps.detect.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
         with:
@@ -124,3 +125,18 @@ jobs:
             - [ ] `cargo clippy --workspace --all-targets --all-features -- -D warnings`
             - [ ] `cargo test --workspace`
             - [ ] Command handlers updated for any new/changed request fields
+
+      # Enable GitHub auto-merge so a clean re-vendor (spec-only, no handler
+      # changes needed) merges itself once the required checks go green — no
+      # human round-trip. If the spec change broke the build, the checks stay
+      # red and auto-merge simply waits (the PR stays open for a human to fix),
+      # which is exactly the intended "surface the drift loudly" behavior.
+      # Requires the repo's "Allow auto-merge" setting and branch protection
+      # with required checks (both configured on main).
+      - name: Enable auto-merge
+        if: steps.detect.outputs.changed == 'true' && steps.cpr.outputs.pull-request-number
+        env:
+          GH_TOKEN: ${{ secrets.NOLGIA_BOT_PAT }}
+        run: |
+          gh pr merge "${{ steps.cpr.outputs.pull-request-number }}" \
+            --repo "${{ github.repository }}" --squash --auto --delete-branch
