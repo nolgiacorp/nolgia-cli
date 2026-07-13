@@ -62,20 +62,31 @@ jobs:
       # nolgia-api/.github/workflows/docs.yml), so we can diff against it
       # with no cross-repo token. Override the URL via NOLGIA_CANONICAL_SPEC_URL
       # if the docs host ever moves.
-      - name: Fetch canonical spec
+      # Re-fetch + re-diff with a few retries. The canonical spec is served from
+      # a CDN-fronted bucket that is eventually-consistent during a publish: when
+      # a nolgia-api merge is mid-propagation, two fetches seconds apart can hit
+      # different edge states, so a single diff can transiently "drift" against a
+      # spec that is really in sync (observed on the revendor PR right after an
+      # api merge). Retrying rides out that window; a genuine drift still fails
+      # after all attempts.
+      - name: Verify vendored spec matches canonical
         env:
           SPEC_URL: ${{ vars.NOLGIA_CANONICAL_SPEC_URL || 'https://docs.nolgia.ai/api/openapi.yaml' }}
         run: |
-          set -euo pipefail
-          curl -fsSL --retry 3 --retry-delay 2 "$SPEC_URL" -o /tmp/canonical-openapi.yaml
-          echo "Fetched $(wc -c < /tmp/canonical-openapi.yaml) bytes from $SPEC_URL"
-
-      - name: Diff vendored spec against canonical
-        run: |
-          set -euo pipefail
-          if ! diff -u crates/client/openapi.yaml /tmp/canonical-openapi.yaml; then
-            echo "::error::crates/client/openapi.yaml has drifted from the canonical nolgia-api spec."
-            echo "::error::Run the 're-vendor OpenAPI spec' workflow (workflow_dispatch), or locally: curl -fsSL https://docs.nolgia.ai/api/openapi.yaml -o crates/client/openapi.yaml && cargo build && cargo fmt --all, then fix any command code and commit."
-            exit 1
-          fi
-          echo "Vendored spec matches canonical nolgia-api contract."
+          set -uo pipefail
+          for attempt in 1 2 3 4; do
+            if ! curl -fsSL --retry 3 --retry-delay 2 "$SPEC_URL" -o /tmp/canonical-openapi.yaml; then
+              echo "::notice::Attempt $attempt: fetch of $SPEC_URL failed — retrying…"
+              sleep 20; continue
+            fi
+            echo "Attempt $attempt: fetched $(wc -c < /tmp/canonical-openapi.yaml) bytes from $SPEC_URL"
+            if diff -u crates/client/openapi.yaml /tmp/canonical-openapi.yaml; then
+              echo "Vendored spec matches canonical nolgia-api contract."
+              exit 0
+            fi
+            echo "::notice::Attempt $attempt: vendored spec differs from canonical — the docs bucket may be mid-publish (CDN eventual consistency). Retrying…"
+            sleep 20
+          done
+          echo "::error::crates/client/openapi.yaml has drifted from the canonical nolgia-api spec (after retries)."
+          echo "::error::Run the 're-vendor OpenAPI spec' workflow (workflow_dispatch), or locally: curl -fsSL https://docs.nolgia.ai/api/openapi.yaml -o crates/client/openapi.yaml && cargo build && cargo fmt --all, then fix any command code and commit."
+          exit 1
