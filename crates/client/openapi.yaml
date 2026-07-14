@@ -78,6 +78,11 @@ tags:
       A preset may reference the marketplace ability powering it via
       `ability_slug`. Admin-managed and mutable by slug (no versions);
       visibility-gated like abilities.
+  - name: Admin
+    description: >
+      Internal admin-only debugging surfaces. Invisible to non-admin callers
+      (reads return 404), and every successful read is audit-logged with the
+      calling admin's email.
   - name: Health
     description: Service health probes.
 
@@ -2290,6 +2295,66 @@ paths:
                 $ref: '#/components/schemas/AgentStepList'
         '400':
           $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /admin/agent/sessions/{id}:
+    get:
+      tags: [Admin]
+      operationId: getAdminAgentSessionTranscript
+      summary: Read any user's agent chat session for debugging (admin only).
+      description: >
+        ADMIN-ONLY debugging surface: returns the full transcript of ANY user's
+        agent chat session — the session meta and owner, every message
+        (oldest first) with each agent turn's persisted steps embedded, and the
+        media the session's completed turns produced. Non-admin callers get
+        `404` (the surface is invisible); an unknown session id is likewise
+        `404`. Every successful read is audit-logged with the calling admin's
+        email, the session id, and the owner's id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The session transcript.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAgentSessionTranscript'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /agent/manifest:
+    get:
+      tags: [Agent]
+      operationId: getAgentManifest
+      summary: >-
+        Return the complete desired state for the current user's agent as a
+        single, server-computed source of truth: its installed abilities (with
+        pinned versions), its available presets, and the pinned CLI + runtime
+        versions. This is the one list a pod-side reconciler materializes.
+        Increment 1 enumerates what already exists in the DB (abilities +
+        presets + version pins); the CLI-embedded skills and the base-image
+        skill library are a separate increment pending an object-store decision.
+      responses:
+        '200':
+          description: The desired state for the calling agent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentManifest'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -5111,6 +5176,16 @@ components:
           format: uuid
           description: Id of the agent reply that is still pending for this user.
 
+    AgentMessageRole:
+      type: string
+      enum: [user, agent]
+      description: Who authored the message.
+
+    AgentMessageStatus:
+      type: string
+      enum: [pending, complete, failed]
+      description: User messages are always `complete`; agent replies start `pending`.
+
     AgentMessage:
       type: object
       additionalProperties: false
@@ -5120,15 +5195,12 @@ components:
           type: string
           format: uuid
         role:
-          type: string
-          enum: [user, agent]
+          $ref: '#/components/schemas/AgentMessageRole'
         content:
           type: string
           description: Message text. Empty while an agent reply is `pending` or when it `failed`.
         status:
-          type: string
-          enum: [pending, complete, failed]
-          description: User messages are always `complete`; agent replies start `pending`.
+          $ref: '#/components/schemas/AgentMessageStatus'
         error:
           type: string
           description: Failure reason, set only when status is `failed`.
@@ -5339,6 +5411,83 @@ components:
         assets:
           type: array
           description: The session's produced assets, newest first.
+          items:
+            $ref: '#/components/schemas/AgentSessionAsset'
+
+    AdminAgentSessionMeta:
+      type: object
+      additionalProperties: false
+      required: [id, owner_user_id, name, created_at, updated_at]
+      description: The session identity plus its owner, for the admin transcript header.
+      properties:
+        id:
+          type: string
+          format: uuid
+        owner_user_id:
+          type: string
+          format: uuid
+          description: The user the session belongs to.
+        owner_email:
+          type: string
+          description: The owner's email, when resolvable, for display in the admin view.
+        name:
+          type: string
+          description: User-chosen session name.
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Project the session is scoped to, or null when unlinked.
+        preset_slug:
+          type: string
+          nullable: true
+          description: Preset the session runs under, or null.
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the session was archived; null while active.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AdminAgentMessage:
+      allOf:
+        - $ref: '#/components/schemas/AgentMessage'
+        - type: object
+          additionalProperties: false
+          properties:
+            steps:
+              type: array
+              description: >
+                The persisted steps of this agent turn (terminal/tool/file/
+                message), oldest first. Present only on agent-role messages that
+                produced steps; absent on user messages and turns with none.
+              items:
+                $ref: '#/components/schemas/AgentStep'
+
+    AdminAgentSessionTranscript:
+      type: object
+      additionalProperties: false
+      required: [session, messages, assets]
+      description: >
+        The full debugging view of one user's agent chat session: its meta and
+        owner, the message transcript (oldest first) with each agent turn's
+        steps embedded, and the media the session produced.
+      properties:
+        session:
+          $ref: '#/components/schemas/AdminAgentSessionMeta'
+        messages:
+          type: array
+          description: Transcript rows in chronological order (oldest first), agent turns carrying their steps.
+          items:
+            $ref: '#/components/schemas/AdminAgentMessage'
+        assets:
+          type: array
+          description: The media the session's completed turns produced, newest first.
           items:
             $ref: '#/components/schemas/AgentSessionAsset'
 
@@ -5573,6 +5722,47 @@ components:
         installed_at:
           type: string
           format: date-time
+
+    AgentManifestAbility:
+      type: object
+      additionalProperties: false
+      required: [slug, version]
+      description: An installed ability reduced to what a reconciler needs to materialize it — its slug and the version to install.
+      properties:
+        slug:
+          type: string
+        version:
+          type: string
+          description: Version to materialize. Today this is the ability's latest published version (installs follow latest); the field exists so a future increment can pin per-install versions without a schema change.
+
+    AgentManifest:
+      type: object
+      additionalProperties: false
+      required: [abilities, presets, cli_version, runtime_version]
+      description: >-
+        The complete server-computed desired state for an agent: the single
+        list a pod-side reconciler materializes. Increment 1 enumerates what
+        already exists in the DB — installed abilities (with versions),
+        available presets, and the pinned CLI + runtime versions.
+      properties:
+        abilities:
+          type: array
+          description: Abilities installed for this agent, newest install first, reduced to slug + version.
+          items:
+            $ref: '#/components/schemas/AgentManifestAbility'
+        presets:
+          type: array
+          description: Presets available to this agent (the public catalog, ascending by sort_order), each the full preset record.
+          items:
+            $ref: '#/components/schemas/Preset'
+        cli_version:
+          type: string
+          description: Pinned nolgia CLI version the reconciler should install. Sourced from a server config default in increment 1 (not yet per-agent).
+          examples: ['0.1.0']
+        runtime_version:
+          type: string
+          description: Pinned agent runtime (base-image) version the reconciler should target. Sourced from a server config default in increment 1 (not yet per-agent).
+          examples: ['0.1.0']
 
     PublishAbilityRequest:
       type: object
