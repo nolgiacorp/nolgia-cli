@@ -3,6 +3,15 @@
 Release notes for the Nolgia CLI. Each `## vX.Y.Z` section becomes the body of
 the matching GitHub release.
 
+## v0.2.8
+
+### Fixed
+
+- **`nolgia ability install` now uses POST (was PUT).** The 0.2.7 binary sent
+  a `PUT` with an empty body, which the API rejected (411/405), so ability
+  install was broken. Re-vendored the OpenAPI spec so the generated client
+  uses `POST` for the install endpoint.
+
 ## Unreleased
 
 - **Quality tiers**: `gen video` and `gen image` gain `--quality` for
