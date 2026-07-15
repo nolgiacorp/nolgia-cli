@@ -173,7 +173,8 @@ fn video_help_lists_quality_and_reference_flags() {
         .stdout(predicate::str::contains("--bitrate"))
         .stdout(predicate::str::contains("--video-ref"))
         .stdout(predicate::str::contains("--element"))
-        .stdout(predicate::str::contains("--end-frame"));
+        .stdout(predicate::str::contains("--end-frame"))
+        .stdout(predicate::str::contains("--project-id"));
 }
 
 #[tokio::test]
@@ -420,6 +421,33 @@ async fn gen_image_sends_quality() {
         ],
     )
     .stdout(predicate::str::contains("job_id"));
+}
+
+#[tokio::test]
+async fn gen_commands_send_project_id() {
+    let api = MockServer::start().await;
+    for modality in ["image", "video", "audio"] {
+        Mock::given(method("POST"))
+            .and(path(format!("/v1/generate/{modality}")))
+            .and(body_partial_json(json!({"project_id": PROJECT_ID})))
+            .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+            .mount(&api)
+            .await;
+        run_ok(
+            &api,
+            &[
+                "--json",
+                "gen",
+                modality,
+                "--prompt",
+                "x",
+                "--project-id",
+                PROJECT_ID,
+                "--no-wait",
+            ],
+        )
+        .stdout(predicate::str::contains("job_id"));
+    }
 }
 
 #[tokio::test]

@@ -9,8 +9,8 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use clap::{Args, Subcommand};
 use nolgia_client::types::{
-    Ability, AbilityVisibility, PublishAbilityRequest, PublishAbilityRequestMinTier,
-    PublishAbilityRequestName, PublishAbilityRequestSlug, PublishAbilityRequestVersion,
+    Ability, AbilityMinTier, AbilityVisibility, PublishAbilityRequest, PublishAbilityRequestName,
+    PublishAbilityRequestSlug, PublishAbilityRequestVersion,
 };
 use std::{
     fs,
@@ -755,7 +755,7 @@ async fn publish(args: PublishArgs, ctx: &CommandContext) -> Result<()> {
                 .collect()
         })
         .unwrap_or_default();
-    let min_tier: Option<PublishAbilityRequestMinTier> = manifest
+    let min_tier: Option<AbilityMinTier> = manifest
         .get("min_tier")
         .and_then(|v| v.as_str())
         .map(|t| serde_json::from_value(serde_json::Value::String(t.to_string())))

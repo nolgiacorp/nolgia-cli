@@ -37,6 +37,10 @@ pub struct ImageArgs {
     /// in `nolgia models get <model>`). Omit for the model's default tier.
     #[arg(long)]
     pub quality: Option<String>,
+    /// File the generated asset(s) into this project (`nolgia projects
+    /// list` for ids). The project must exist and belong to you.
+    #[arg(long, value_name = "PROJECT_UUID")]
+    pub project_id: Option<uuid::Uuid>,
     #[arg(long, default_value_t = false)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -106,6 +110,10 @@ pub struct VideoArgs {
     /// Repeat up to 8 times; clip duration = sum, --prompt becomes style/context.
     #[arg(long = "shot")]
     pub shots: Vec<String>,
+    /// File the generated asset into this project (`nolgia projects list`
+    /// for ids). The project must exist and belong to you.
+    #[arg(long, value_name = "PROJECT_UUID")]
+    pub project_id: Option<uuid::Uuid>,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -129,6 +137,10 @@ pub struct AudioArgs {
     pub voice: Option<String>,
     #[arg(long, default_value = "mp3")]
     pub format: AudioFormat,
+    /// File the generated asset into this project (`nolgia projects list`
+    /// for ids). The project must exist and belong to you.
+    #[arg(long, value_name = "PROJECT_UUID")]
+    pub project_id: Option<uuid::Uuid>,
     #[arg(long, default_value_t = false)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -164,6 +176,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .model(args.model)
         .prompt(args.prompt)
         .quality(quality)
+        .project_id(args.project_id)
         .try_into()
         .context("building image request")?;
     let job = match ctx.client().generate_image().body(body).send().await {
@@ -275,6 +288,7 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .generate_audio(args.generate_audio)
         .quality(quality)
         .bitrate_mode(args.bitrate)
+        .project_id(args.project_id)
         .shots(shots);
     if let Some(duration) = args.duration_seconds {
         builder = builder.duration_seconds(duration);
@@ -319,6 +333,7 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
         .prompt(args.prompt)
         .voice(voice)
         .format(args.format)
+        .project_id(args.project_id)
         .try_into()
         .context("building audio request")?;
     let job = ctx

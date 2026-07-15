@@ -2,6 +2,9 @@ mod generated {
     #![allow(clippy::all)]
     #![allow(clippy::unwrap_used)]
     #![allow(unused_imports)]
+    // Schemas with `minLength: 0` (e.g. SubmitAgentMessageRequest.content)
+    // generate an always-false `chars().count() < 0usize` guard.
+    #![allow(unused_comparisons)]
 
     include!(concat!(env!("OUT_DIR"), "/codegen.rs"));
 }

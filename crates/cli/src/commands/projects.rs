@@ -199,6 +199,8 @@ async fn update(args: UpdateProjectArgs, ctx: &CommandContext) -> Result<()> {
         name,
         description,
         auto_tags,
+        archived: None,
+        favorite: None,
     };
     let project = ctx
         .client()
