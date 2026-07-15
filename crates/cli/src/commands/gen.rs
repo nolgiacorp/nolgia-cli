@@ -37,6 +37,10 @@ pub struct ImageArgs {
     /// in `nolgia models get <model>`). Omit for the model's default tier.
     #[arg(long)]
     pub quality: Option<String>,
+    /// File the generated asset(s) into this project (`nolgia projects
+    /// list` for ids). The project must exist and belong to you.
+    #[arg(long, value_name = "PROJECT_UUID")]
+    pub project_id: Option<uuid::Uuid>,
     #[arg(long, default_value_t = false)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -106,6 +110,10 @@ pub struct VideoArgs {
     /// Repeat up to 8 times; clip duration = sum, --prompt becomes style/context.
     #[arg(long = "shot")]
     pub shots: Vec<String>,
+    /// File the generated asset into this project (`nolgia projects list`
+    /// for ids). The project must exist and belong to you.
+    #[arg(long, value_name = "PROJECT_UUID")]
+    pub project_id: Option<uuid::Uuid>,
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -129,6 +137,10 @@ pub struct AudioArgs {
     pub voice: Option<String>,
     #[arg(long, default_value = "mp3")]
     pub format: AudioFormat,
+    /// File the generated asset into this project (`nolgia projects list`
+    /// for ids). The project must exist and belong to you.
+    #[arg(long, value_name = "PROJECT_UUID")]
+    pub project_id: Option<uuid::Uuid>,
     #[arg(long, default_value_t = false)]
     pub wait: bool,
     #[arg(long, default_value_t = false)]
@@ -164,6 +176,7 @@ async fn image(args: ImageArgs, ctx: &CommandContext) -> Result<()> {
         .model(args.model)
         .prompt(args.prompt)
         .quality(quality)
+        .project_id(args.project_id)
         .try_into()
         .context("building image request")?;
     let job = match ctx.client().generate_image().body(body).send().await {
@@ -275,6 +288,7 @@ async fn video(args: VideoArgs, ctx: &CommandContext) -> Result<()> {
         .generate_audio(args.generate_audio)
         .quality(quality)
         .bitrate_mode(args.bitrate)
+        .project_id(args.project_id)
         .shots(shots);
     if let Some(duration) = args.duration_seconds {
         builder = builder.duration_seconds(duration);
@@ -319,6 +333,7 @@ async fn audio(args: AudioArgs, ctx: &CommandContext) -> Result<()> {
         .prompt(args.prompt)
         .voice(voice)
         .format(args.format)
+        .project_id(args.project_id)
         .try_into()
         .context("building audio request")?;
     let job = ctx
@@ -416,18 +431,23 @@ async fn resolve_end_frame(input: &str, ctx: &CommandContext) -> Result<uuid::Uu
             format!("--end-frame: {input:?} is neither an asset UUID nor an existing file")
         });
     }
-    Ok(upload_image_asset(&PathBuf::from(input), ctx).await?.id)
+    Ok(upload_image_asset(&PathBuf::from(input), ctx, None)
+        .await?
+        .id)
 }
 
 async fn upload_input_image(path: &PathBuf, ctx: &CommandContext) -> Result<String> {
-    Ok(upload_image_asset(path, ctx).await?.signed_url)
+    Ok(upload_image_asset(path, ctx, None).await?.signed_url)
 }
 
 /// Upload a local image to /assets; shared by `gen --input` and
-/// `assets upload`.
+/// `assets upload`. `project_id` files the new asset into a project at
+/// creation (gen input/end-frame uploads pass `None` — only the generated
+/// output is filed).
 pub(crate) async fn upload_image_asset(
     path: &PathBuf,
     ctx: &CommandContext,
+    project_id: Option<uuid::Uuid>,
 ) -> Result<nolgia_client::types::Asset> {
     use base64::Engine as _;
     let content_type = match path
@@ -445,6 +465,7 @@ pub(crate) async fn upload_image_asset(
     let body: UploadAssetRequest = UploadAssetRequest::builder()
         .content_type(content_type)
         .data(base64::engine::general_purpose::STANDARD.encode(bytes))
+        .project_id(project_id)
         .filename(
             path.file_name()
                 .and_then(|n| n.to_str())

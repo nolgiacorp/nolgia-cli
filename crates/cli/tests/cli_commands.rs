@@ -173,7 +173,8 @@ fn video_help_lists_quality_and_reference_flags() {
         .stdout(predicate::str::contains("--bitrate"))
         .stdout(predicate::str::contains("--video-ref"))
         .stdout(predicate::str::contains("--element"))
-        .stdout(predicate::str::contains("--end-frame"));
+        .stdout(predicate::str::contains("--end-frame"))
+        .stdout(predicate::str::contains("--project-id"));
 }
 
 #[tokio::test]
@@ -420,6 +421,61 @@ async fn gen_image_sends_quality() {
         ],
     )
     .stdout(predicate::str::contains("job_id"));
+}
+
+#[tokio::test]
+async fn gen_commands_send_project_id() {
+    let api = MockServer::start().await;
+    for modality in ["image", "video", "audio"] {
+        Mock::given(method("POST"))
+            .and(path(format!("/v1/generate/{modality}")))
+            .and(body_partial_json(json!({"project_id": PROJECT_ID})))
+            .respond_with(ResponseTemplate::new(202).set_body_json(job_json("queued", None)))
+            .mount(&api)
+            .await;
+        run_ok(
+            &api,
+            &[
+                "--json",
+                "gen",
+                modality,
+                "--prompt",
+                "x",
+                "--project-id",
+                PROJECT_ID,
+                "--no-wait",
+            ],
+        )
+        .stdout(predicate::str::contains("job_id"));
+    }
+}
+
+#[tokio::test]
+async fn assets_upload_sends_project_id() {
+    let api = MockServer::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("ref.png");
+    std::fs::write(&file, [1u8, 2, 3]).unwrap();
+    Mock::given(method("POST"))
+        .and(path("/v1/assets"))
+        .and(body_partial_json(json!({
+            "content_type": "image/png",
+            "project_id": PROJECT_ID,
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(asset_json("https://files/ref.png")))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "assets",
+            "upload",
+            file.to_str().unwrap(),
+            "--project-id",
+            PROJECT_ID,
+        ],
+    )
+    .stdout(predicate::str::contains("ref.png"));
 }
 
 #[tokio::test]
