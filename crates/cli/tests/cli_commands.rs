@@ -451,6 +451,34 @@ async fn gen_commands_send_project_id() {
 }
 
 #[tokio::test]
+async fn assets_upload_sends_project_id() {
+    let api = MockServer::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("ref.png");
+    std::fs::write(&file, [1u8, 2, 3]).unwrap();
+    Mock::given(method("POST"))
+        .and(path("/v1/assets"))
+        .and(body_partial_json(json!({
+            "content_type": "image/png",
+            "project_id": PROJECT_ID,
+        })))
+        .respond_with(ResponseTemplate::new(201).set_body_json(asset_json("https://files/ref.png")))
+        .mount(&api)
+        .await;
+    run_ok(
+        &api,
+        &[
+            "assets",
+            "upload",
+            file.to_str().unwrap(),
+            "--project-id",
+            PROJECT_ID,
+        ],
+    )
+    .stdout(predicate::str::contains("ref.png"));
+}
+
+#[tokio::test]
 async fn status_fetches_job() {
     let api = MockServer::start().await;
     Mock::given(method("GET"))

@@ -119,6 +119,7 @@ nolgia characters list                             # id, name, ref count
 nolgia projects create --name "Q3 launch"
 nolgia projects add-assets <project_id> --asset-id <uuid> --asset-id <uuid>
 nolgia gen image --prompt "..." --project-id <uuid>  # file the result at creation
+nolgia assets upload ref.png --project-id <uuid>   # uploads file the same way
 nolgia assets tag <asset_id> --tag hero --tag campaign   # REPLACES the set; --clear wipes
 nolgia assets list --tag hero --project-id <uuid>  # filter by tag / project
 ```
@@ -126,9 +127,10 @@ nolgia assets list --tag hero --project-id <uuid>  # filter by tag / project
 Characters keep a recurring subject consistent: seed image-to-video with a
 character's reference image (`gen video --input <reference asset uuid>`)
 and fold its description into the prompt. Projects group assets (an asset
-can be in many); tags label and filter them. Prefer `gen ... --project-id`
-over after-the-fact `projects add-assets` when the destination project is
-known up front.
+can be in many); tags label and filter them — tags never move assets into
+projects. Prefer `--project-id` on `gen`/`assets upload` over
+after-the-fact `projects add-assets` when the destination project is known
+up front.
 
 ## Failure recovery
 

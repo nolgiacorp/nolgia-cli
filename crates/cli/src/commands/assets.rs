@@ -53,6 +53,10 @@ pub struct DeleteAssetArgs {
 #[derive(Args, Debug)]
 pub struct UploadAssetArgs {
     pub file: PathBuf,
+    /// File the uploaded asset into this project (`nolgia projects list`
+    /// for ids). The project must exist and belong to you.
+    #[arg(long, value_name = "PROJECT_UUID")]
+    pub project_id: Option<Uuid>,
 }
 
 #[derive(Args, Debug)]
@@ -243,7 +247,7 @@ async fn frame(args: FrameAssetArgs, ctx: &CommandContext) -> Result<()> {
 }
 
 async fn upload(args: UploadAssetArgs, ctx: &CommandContext) -> Result<()> {
-    let asset = super::r#gen::upload_image_asset(&args.file, ctx).await?;
+    let asset = super::r#gen::upload_image_asset(&args.file, ctx, args.project_id).await?;
     match ctx.format() {
         OutputFormat::Json => print_json(&asset),
         OutputFormat::Text => {

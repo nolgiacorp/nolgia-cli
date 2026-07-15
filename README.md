@@ -74,7 +74,7 @@ Generation is account-backed and consumes the applicable credit pool. Use `nolgi
 
 ## Generation
 
-All generation requests require `--prompt`. The server catalog is authoritative for model IDs, supported durations, aspect ratios, quality tiers, and pricing; do not assume that an option accepted by one model is accepted by another. Every `gen` subcommand accepts `--project-id <PROJECT_UUID>` to file the generated asset(s) into one of your projects at creation (`nolgia projects list` for ids); without it, assets land unfiled.
+All generation requests require `--prompt`. The server catalog is authoritative for model IDs, supported durations, aspect ratios, quality tiers, and pricing; do not assume that an option accepted by one model is accepted by another. Every `gen` subcommand (and `assets upload`) accepts `--project-id <PROJECT_UUID>` to file the resulting asset(s) into one of your projects at creation (`nolgia projects list` for ids); without it, assets land in your default Library project.
 
 ### Images
 
@@ -205,7 +205,7 @@ Human output otherwise depends on the command: completed image/audio generations
 
 Use `nolgia <COMMAND> --help` (and, where applicable, `nolgia <COMMAND> <SUBCOMMAND> --help`) for the complete flags and current server-facing details.
 
-Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholders are documentation notation, not literal shell arguments. Flag highlights include `gen image/video/audio --project-id` (file the result into a project), `assets list --limit/--cursor/--modality/--tag/--project-id`, `assets get --out`, `assets tag --tag` (repeatable) or `--clear`, `assets frame --at/--last/--out`, `projects create/update --auto-tag` and `update --clear-auto-tags`, `projects add-assets --asset-id` (repeatable), and up to four `characters ... --reference-asset-id` values. `ability sync`/`init` accept `--dir`, while `ability pack` accepts `--out`, as shown by their help. Video waits by default; use `--no-wait` for the JSON job object and `--timeout` to bound waiting.
+Replace every `<PLACEHOLDER>` below with a real value; angle-bracket placeholders are documentation notation, not literal shell arguments. Flag highlights include `gen image/video/audio --project-id` and `assets upload --project-id` (file the result into a project), `assets list --limit/--cursor/--modality/--tag/--project-id`, `assets get --out`, `assets tag --tag` (repeatable) or `--clear`, `assets frame --at/--last/--out`, `projects create/update --auto-tag` and `update --clear-auto-tags`, `projects add-assets --asset-id` (repeatable), and up to four `characters ... --reference-asset-id` values. `ability sync`/`init` accept `--dir`, while `ability pack` accepts `--out`, as shown by their help. Video waits by default; use `--no-wait` for the JSON job object and `--timeout` to bound waiting.
 
 | Command | Subcommands and purpose |
 |---|---|

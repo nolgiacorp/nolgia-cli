@@ -3553,6 +3553,14 @@ components:
           type: string
           nullable: true
           maxLength: 255
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Files the uploaded asset into this caller-owned project directly;
+            an unknown or foreign project returns 400. Without it, the asset
+            lands in the default "Library" project.
 
     CreateAssetUploadRequest:
       type: object
@@ -3614,8 +3622,8 @@ components:
           description: >
             Files the uploaded asset into this caller-owned project directly
             (no tag matching involved); an unknown or foreign project returns
-            400. Without it, the asset is filed by auto-tag matching or lands
-            in the default "Library" project.
+            400. Without it, the asset lands in the default "Library"
+            project.
 
     AssetUpload:
       type: object
@@ -4475,19 +4483,19 @@ components:
           type: boolean
           description: >
             True for the user's default "Library" project: created on demand,
-            it receives every new asset that does not match another project's
-            auto-tags. Always present in responses. Read-only: it cannot be
-            set via create or update requests (unknown request fields are
+            it receives every new asset that is not explicitly filed into a
+            project. Always present in responses. Read-only: it cannot be set
+            via create or update requests (unknown request fields are
             rejected with 400).
         auto_tags:
           type: array
           maxItems: 10
           description: >
-            Legacy auto-filing trigger: new assets created with an overlapping
-            tag are automatically added to this project. Prefer explicit
-            project_id attribution on generation and upload requests; auto-tag
-            matching is kept for backwards compatibility and also flows into
-            linked agent sessions as project context.
+            Label set for the project. Auto-tags never move assets (the
+            historical tag-overlap auto-filing is retired — assets join
+            projects only by explicit project_id attribution); they flow into
+            linked agent sessions as project context and are stamped onto
+            session-attributed generations as searchable labels.
           items:
             type: string
             minLength: 1
@@ -4538,7 +4546,7 @@ components:
         auto_tags:
           type: array
           maxItems: 10
-          description: New assets created with an overlapping tag are automatically added to this project.
+          description: Label set for the project (agent context + searchable labels; never a filing mechanism).
           items:
             type: string
             minLength: 1
@@ -4562,7 +4570,7 @@ components:
           type: array
           nullable: true
           maxItems: 10
-          description: Replaces the project's full auto-tag set when provided. New assets created with an overlapping tag are automatically added to this project.
+          description: Replaces the project's full auto-tag set when provided (labels/agent context only; never a filing mechanism).
           items:
             type: string
             minLength: 1
