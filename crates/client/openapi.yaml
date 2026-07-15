@@ -938,6 +938,14 @@ paths:
       tags: [Projects]
       operationId: listProjects
       summary: List the current user's projects, newest first.
+      description: >
+        Archived projects are excluded unless `include_archived=true`.
+      parameters:
+        - name: include_archived
+          in: query
+          schema:
+            type: boolean
+          description: Include archived projects in the listing.
       responses:
         '200':
           description: Projects owned by the current user.
@@ -1001,8 +1009,11 @@ paths:
     patch:
       tags: [Projects]
       operationId: updateProject
-      summary: Update a project's name or description.
-      description: Partial update; only provided fields change.
+      summary: Update, favorite, archive, or unarchive a project.
+      description: >
+        Partial update; only provided fields change. `archived: true` archives
+        the project (hiding it from the default listing), `archived: false`
+        restores it.
       parameters:
         - name: id
           in: path
@@ -1114,6 +1125,36 @@ paths:
       responses:
         '204':
           description: Asset removed from the project (or was not a member).
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /projects/{id}/renders:
+    get:
+      tags: [Projects]
+      operationId: listProjectRenders
+      summary: List recent renders across all of a project's compositions, newest first.
+      description: >
+        Returns up to 20 render rows for compositions currently linked to the
+        project. Renders of compositions that were deleted or moved out of the
+        project do not appear.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The project's recent renders.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderList'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -2062,6 +2103,45 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /agent/transcriptions:
+    post:
+      tags: [Agent]
+      operationId: transcribeAgentAudio
+      summary: Transcribe an uploaded audio asset to text (browser sessions only).
+      description: >
+        Transcribes a short audio asset — typically a voice note recorded in
+        the chat composer and stored via the signed-upload flow — into text
+        using a speech-to-text model behind the platform's model proxy. The
+        asset must be owned by the caller (`404` otherwise), have modality
+        `audio`, be status `ready`, and be at most 25 MiB (`400` otherwise);
+        an upstream transcription failure surfaces as `502`. Browser (JWT)
+        sessions only — PATs are rejected.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TranscribeAgentAudioRequest'
+      responses:
+        '200':
+          description: The transcribed text.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentTranscription'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        '502':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /agent/sessions:
     get:
       tags: [Agent]
@@ -2329,6 +2409,66 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminAgentSessionTranscript'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
+  /admin/catalog-audit:
+    get:
+      tags: [Admin]
+      operationId: listCatalogAudit
+      summary: Read the abilities/presets catalog audit trail (admin only).
+      description: >
+        ADMIN-ONLY: returns the durable, actor-attributed record of catalog
+        mutations (ability publishes/edits/deletes/installs and preset
+        upserts/holds/deletes), newest first. Each row carries who acted
+        (actor_user_id + actor_email, when resolvable), what changed (action,
+        target_type, target_slug, target_version), and a small non-secret
+        `details` object. Non-admin callers get `404` — the surface is
+        invisible. Optional `target_type` / `target_slug` filters narrow to one
+        catalog entry; `limit`/`offset` paginate.
+      parameters:
+        - name: target_type
+          in: query
+          required: false
+          description: Restrict to ability- or preset-targeted rows.
+          schema:
+            $ref: '#/components/schemas/CatalogAuditTargetType'
+        - name: target_slug
+          in: query
+          required: false
+          description: Restrict to a single catalog entry by slug.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          description: Maximum rows to return (newest first).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          description: Number of rows to skip for pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        '200':
+          description: Recent catalog-audit rows, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CatalogAuditEntry'
         '401':
           $ref: '#/components/responses/ProblemResponse'
         '404':
@@ -2682,6 +2822,29 @@ paths:
           $ref: '#/components/responses/ProblemResponse'
 
   /abilities/{slug}/versions:
+    get:
+      tags: [Abilities]
+      operationId: listAbilityVersions
+      summary: List every published version of an ability, newest first (admin only). Read companion to `deleteAbilityVersion` — the admin version-delete UI uses this to show a picker of deletable versions instead of asking the operator to type a semver. Each entry flags `is_latest` (the latest version cannot be deleted).
+      parameters:
+        - $ref: '#/components/parameters/AbilitySlug'
+      responses:
+        '200':
+          description: Published versions, newest first (by `created_at`).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AbilityVersion'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
     post:
       tags: [Abilities]
       operationId: publishAbilityVersionFromFiles
@@ -3390,6 +3553,14 @@ components:
           type: string
           nullable: true
           maxLength: 255
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Files the uploaded asset into this caller-owned project directly;
+            an unknown or foreign project returns 400. Without it, the asset
+            lands in the default "Library" project.
 
     CreateAssetUploadRequest:
       type: object
@@ -3411,6 +3582,8 @@ components:
             - audio/mpeg
             - audio/wav
             - audio/ogg
+            - audio/webm
+            - audio/mp4
             - image/png
             - image/jpeg
             - image/webp
@@ -3442,6 +3615,15 @@ components:
             Optional human-readable display name stored on the pre-created
             asset (trimmed). Defaults to empty.
           examples: ['Hero shot v2']
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            Files the uploaded asset into this caller-owned project directly
+            (no tag matching involved); an unknown or foreign project returns
+            400. Without it, the asset lands in the default "Library"
+            project.
 
     AssetUpload:
       type: object
@@ -4289,7 +4471,10 @@ components:
         asset_count:
           type: integer
           minimum: 0
-          description: Number of assets currently in the project.
+          description: >
+            Number of ready assets currently in the project (pending signed
+            uploads are excluded until completion, matching the default asset
+            listing).
         composition_count:
           type: integer
           minimum: 0
@@ -4298,19 +4483,35 @@ components:
           type: boolean
           description: >
             True for the user's default "Library" project: created on demand,
-            it receives every new asset that does not match another project's
-            auto-tags. Always present in responses. Read-only: it cannot be
-            set via create or update requests (unknown request fields are
+            it receives every new asset that is not explicitly filed into a
+            project. Always present in responses. Read-only: it cannot be set
+            via create or update requests (unknown request fields are
             rejected with 400).
         auto_tags:
           type: array
           maxItems: 10
-          description: New assets created with an overlapping tag are automatically added to this project.
+          description: >
+            Label set for the project. Auto-tags never move assets (the
+            historical tag-overlap auto-filing is retired — assets join
+            projects only by explicit project_id attribution); they flow into
+            linked agent sessions as project context and are stamped onto
+            session-attributed generations as searchable labels.
           items:
             type: string
             minLength: 1
             maxLength: 40
           examples: [['hero', 'draft']]
+        favorite:
+          type: boolean
+          description: User-set favorite flag. Always present in responses.
+        archived_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: >
+            When the project was archived; omitted while active. Archived
+            projects are hidden from the default listing but behave normally
+            otherwise.
         created_at:
           type: string
           format: date-time
@@ -4345,7 +4546,7 @@ components:
         auto_tags:
           type: array
           maxItems: 10
-          description: New assets created with an overlapping tag are automatically added to this project.
+          description: Label set for the project (agent context + searchable labels; never a filing mechanism).
           items:
             type: string
             minLength: 1
@@ -4369,12 +4570,23 @@ components:
           type: array
           nullable: true
           maxItems: 10
-          description: Replaces the project's full auto-tag set when provided. New assets created with an overlapping tag are automatically added to this project.
+          description: Replaces the project's full auto-tag set when provided (labels/agent context only; never a filing mechanism).
           items:
             type: string
             minLength: 1
             maxLength: 40
           examples: [['hero', 'draft']]
+        favorite:
+          type: boolean
+          nullable: true
+          description: Sets the project's favorite flag when provided.
+        archived:
+          type: boolean
+          nullable: true
+          description: >
+            `true` archives the project (idempotent; an existing archive
+            timestamp is kept), `false` restores it. Omit to leave the archive
+            state unchanged.
 
     AddProjectAssetsRequest:
       type: object
@@ -4512,7 +4724,10 @@ components:
           type: string
           format: uuid
           nullable: true
-          description: Links the composition to an existing project owned by the caller when provided; an unknown or foreign project returns 404. Omit to leave the link unchanged.
+          description: >
+            Set to a project id to link the composition to that caller-owned
+            project (an unknown or foreign project returns 404), or to `null`
+            to unlink it. Omit the field to leave the link unchanged.
         meta:
           type: object
           nullable: true
@@ -5041,6 +5256,13 @@ components:
           type: string
           nullable: true
           format: date-time
+        pending_turn:
+          type: boolean
+          description: >-
+            Whether the agent's owning user has an in-flight agent turn (a
+            pending agent message). Populated only on the internal provisioner
+            listing so the reconcile loop can defer a pod roll until the agent
+            is idle and avoid killing a running turn. Omitted elsewhere.
 
     ProvisionAgentRequest:
       type: object
@@ -5121,6 +5343,27 @@ components:
           items:
             type: string
 
+    TranscribeAgentAudioRequest:
+      type: object
+      additionalProperties: false
+      required: [asset_id]
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          description: >
+            Audio asset to transcribe. Must be owned by the caller (`404`
+            otherwise), modality `audio`, status `ready`, and at most 25 MiB.
+
+    AgentTranscription:
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+          description: The transcribed text.
+
     SubmitAgentMessageRequest:
       type: object
       additionalProperties: false
@@ -5128,9 +5371,23 @@ components:
       properties:
         content:
           type: string
-          minLength: 1
+          minLength: 0
           maxLength: 8000
-          description: The user's message to relay to the agent.
+          description: >
+            The user's message to relay to the agent. May be empty only when
+            `attachments` is non-empty (an attachment-only send); a submit
+            with neither content nor attachments is rejected with `400`.
+        attachments:
+          type: array
+          maxItems: 8
+          description: >
+            Assets to attach to the message. Each must name an asset owned by
+            the caller with status `ready` (`400` otherwise). Attachment
+            metadata (filename, content type) is denormalized onto the
+            transcript row at submit time, and the relayed turn tells the
+            agent how to fetch the files.
+          items:
+            $ref: '#/components/schemas/AgentMessageAttachmentInput'
         session_id:
           type: string
           format: uuid
@@ -5176,6 +5433,47 @@ components:
           format: uuid
           description: Id of the agent reply that is still pending for this user.
 
+    AgentMessageAttachmentInput:
+      type: object
+      additionalProperties: false
+      required: [asset_id]
+      description: One asset attached to a submitted chat message.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          description: >
+            Asset to attach. Must be owned by the caller and have status
+            `ready` (`400` otherwise).
+        kind:
+          type: string
+          enum: [file, voice]
+          default: file
+          description: >
+            How the attachment was produced: `voice` marks a recorded voice
+            note; `file` (the default) is any other uploaded file.
+
+    AgentMessageAttachment:
+      type: object
+      additionalProperties: false
+      required: [asset_id, kind]
+      description: >
+        One asset attached to a transcript message, with filename and content
+        type denormalized from the asset at submit time.
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [file, voice]
+        filename:
+          type: string
+          description: Original filename of the attached asset, when known.
+        content_type:
+          type: string
+          description: MIME type of the attached asset, when known.
+
     AgentMessageRole:
       type: string
       enum: [user, agent]
@@ -5219,6 +5517,13 @@ components:
             steering: they were recorded while another turn was in flight
             and delivered to the agent with the following turn. Absent
             means false.
+        attachments:
+          type: array
+          description: >
+            Assets attached to this message at submit time. Absent when the
+            message carries no attachments.
+          items:
+            $ref: '#/components/schemas/AgentMessageAttachment'
         created_at:
           type: string
           format: date-time
@@ -5491,6 +5796,70 @@ components:
           items:
             $ref: '#/components/schemas/AgentSessionAsset'
 
+    CatalogAuditTargetType:
+      type: string
+      enum: [ability, preset]
+      description: Which catalog a catalog-audit row targets.
+
+    CatalogAuditAction:
+      type: string
+      enum:
+        - publish_ability
+        - publish_ability_version
+        - update_ability_metadata
+        - set_ability_visibility
+        - delete_ability
+        - delete_ability_version
+        - install_ability
+        - uninstall_ability
+        - upsert_preset
+        - update_preset_visibility
+        - delete_preset
+      description: The catalog mutation a catalog-audit row records.
+
+    CatalogAuditEntry:
+      type: object
+      additionalProperties: false
+      required: [id, action, target_type, target_slug, at]
+      description: >
+        One durable, actor-attributed record of a catalog (abilities/presets)
+        mutation. Actor fields are present when the acting caller was
+        resolvable. `details` is a small non-secret object (field names, slugs,
+        versions, booleans) — never secret values or content bytes.
+      properties:
+        id:
+          type: string
+          format: uuid
+        actor_user_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: The acting user's id, or null when unresolvable (or the user was later deleted).
+        actor_email:
+          type: string
+          nullable: true
+          description: The acting user's email snapshot at the time of the mutation, or null.
+        action:
+          $ref: '#/components/schemas/CatalogAuditAction'
+        target_type:
+          $ref: '#/components/schemas/CatalogAuditTargetType'
+        target_slug:
+          type: string
+          description: Slug of the ability or preset the mutation targeted.
+        target_version:
+          type: string
+          nullable: true
+          description: The version the mutation targeted, when version-scoped; null otherwise.
+        details:
+          type: object
+          additionalProperties: true
+          nullable: true
+          description: Small non-secret context (changed field names, slugs, versions, booleans). Never secret values or content bytes.
+        at:
+          type: string
+          format: date-time
+          description: When the mutation was recorded (post-commit).
+
     AgentCredentials:
       type: object
       additionalProperties: false
@@ -5588,6 +5957,12 @@ components:
       x-enum-varnames: [AbilityIntervalMonth]
       description: Billing interval for a `premium_addon` ability's price. Only monthly is supported for now.
 
+    AbilityMinTier:
+      type: string
+      enum: ['', starter, pro, studio, studio_min, studio_mid, studio_max]
+      x-enum-varnames: [AbilityTierFree, AbilityTierStarter, AbilityTierPro, AbilityTierStudio, AbilityTierStudioMin, AbilityTierStudioMid, AbilityTierStudioMax]
+      description: Minimum subscription tier required to install/download the ability. Empty (default) means free for any account.
+
     Ability:
       type: object
       additionalProperties: false
@@ -5667,6 +6042,29 @@ components:
         content_base64:
           type: string
           description: Base64-encoded tar.gz of the ability package directory.
+
+    AbilityVersion:
+      type: object
+      additionalProperties: false
+      required: [version, is_latest, created_at]
+      description: One published version of an ability, for the admin version-delete picker. Versions are immutable and ordered newest-first; `is_latest` marks the version installs follow (which `deleteAbilityVersion` refuses to delete).
+      properties:
+        version:
+          type: string
+          description: Semver version.
+          examples: ['1.0.0']
+        is_latest:
+          type: boolean
+          description: True for the latest published version (the one installs follow). The latest version cannot be deleted via `deleteAbilityVersion`.
+        size_bytes:
+          type: integer
+          minimum: 0
+          description: Uncompressed size of the version's package payload in bytes, as recorded at publish time.
+          examples: [20480]
+        created_at:
+          type: string
+          format: date-time
+          description: When this version was published.
 
     AbilityFiles:
       type: object
@@ -5793,9 +6191,8 @@ components:
           type: string
           maxLength: 500
         min_tier:
-          type: string
-          enum: ['', starter, pro, studio, studio_min, studio_mid, studio_max]
-          x-enum-varnames: [AbilityTierFree, AbilityTierStarter, AbilityTierPro, AbilityTierStudio, AbilityTierStudioMin, AbilityTierStudioMid, AbilityTierStudioMax]
+          allOf:
+            - $ref: '#/components/schemas/AbilityMinTier'
           description: Minimum subscription tier required to install/download the ability. Empty (default) means free.
         access:
           allOf:
@@ -5812,7 +6209,13 @@ components:
           nullable: true
           description: Billing interval of `price_cents`, required for `premium_addon` (and rejected for `included`).
         visibility:
-          $ref: '#/components/schemas/AbilityVisibility'
+          allOf:
+            - $ref: '#/components/schemas/AbilityVisibility'
+          description: >-
+            Audience of the newly published ability. Defaults to `private` when omitted —
+            a safe-by-default held draft that stays out of the customer catalog until an
+            admin promotes it, so a forgotten `visibility` never silently ships an ability
+            public. Set `public` explicitly to publish it live to the catalog.
         manifest:
           type: object
           description: The full `ability.json` manifest, stored verbatim with the version.
@@ -5823,8 +6226,51 @@ components:
     UpdateAbilityRequest:
       type: object
       additionalProperties: false
-      description: Lifecycle update for an existing ability. Only `visibility` is mutable today; flipping to `private` holds the ability, `public` unholds it.
+      description: |
+        Partial in-place update of an existing ability's mutable metadata and lifecycle. Every
+        field is optional; only the fields present are changed, and any subset may be sent.
+        `visibility` still drives the hold/unhold lifecycle (flipping to `private` holds the
+        ability, `public` unholds it). The remaining fields edit catalog metadata in place —
+        they do not create a new version (package content is edited via `POST /abilities/{slug}/versions`).
+        When `access` is set, the same `premium_addon`↔`price_cents`/`interval` consistency
+        rules as publishing apply.
       properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Display name of the ability.
+        description:
+          type: string
+          maxLength: 4000
+          description: Catalog description of the ability.
+        min_tier:
+          allOf:
+            - $ref: '#/components/schemas/AbilityMinTier'
+          description: Minimum subscription tier required to install/download the ability. Empty means free.
+        access:
+          allOf:
+            - $ref: '#/components/schemas/AbilityAccess'
+          description: Commercial access model. `premium_addon` requires `price_cents` + `interval`; `included` rejects them.
+        price_cents:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Add-on price in cents, required for `premium_addon` (and rejected for `included`). Metadata only — no purchase flow yet.
+        interval:
+          allOf:
+            - $ref: '#/components/schemas/AbilityInterval'
+          nullable: true
+          description: Billing interval of `price_cents`, required for `premium_addon` (and rejected for `included`).
+        required_env:
+          type: array
+          items:
+            type: string
+          description: Environment variables the ability expects on the agent pod.
+        credit_cost_hint:
+          type: string
+          maxLength: 500
+          description: Free-text hint of how the ability spends credits.
         visibility:
           $ref: '#/components/schemas/AbilityVisibility'
 
@@ -5832,7 +6278,7 @@ components:
       type: object
       additionalProperties: false
       required: [path, content]
-      description: 'A single file in an edited ability package. Binary files are carried base64-encoded (set `base64: true`); text files are sent verbatim.'
+      description: 'A single file in an edited ability package. Binary files are carried base64-encoded (set `base64: true`); text files are sent verbatim. Unchanged files can be carried over from the latest version with `keep: true` instead of re-uploading their bytes.'
       properties:
         path:
           type: string
@@ -5840,11 +6286,20 @@ components:
           examples: ['SKILL.md', 'pipeline/render.py']
         content:
           type: string
-          description: File body. UTF-8 text by default, or base64-encoded bytes when `base64` is true.
+          description: File body. UTF-8 text by default, or base64-encoded bytes when `base64` is true. Must be empty when `keep` is true.
         base64:
           type: boolean
           default: false
-          description: When true, `content` is base64-decoded to the file's raw bytes (used for binary files the editor round-trips unchanged).
+          description: When true, `content` is base64-decoded to the file's raw bytes (used for binary files the editor round-trips unchanged). Must not be combined with `keep`.
+        keep:
+          type: boolean
+          default: false
+          description: >
+            When true, the server copies this path's bytes from the CURRENT
+            latest version's package instead of taking them from `content`
+            (which must be empty; `400` otherwise). `400` when the ability
+            has no prior version or the path is not present in the latest
+            version's package.
 
     PublishAbilityVersionRequest:
       type: object
@@ -5931,7 +6386,26 @@ components:
         thumbnail_url:
           type: string
           nullable: true
-          description: Optional thumbnail media URL for the preset card. `null` renders a gradient placeholder.
+          description: >-
+            Resolved preview media URL for the preset card. `null` renders a
+            gradient placeholder. When `preview_asset_id` is set the server
+            resolves it to a FRESH signed URL and returns it here (the
+            dogfooded preview wins); otherwise this echoes the preset's stored
+            literal `thumbnail_url` (the human/legacy path). The value carries
+            the object's file extension so clients can classify image-vs-video
+            by URL.
+        preview_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Optional platform asset (a generated image or short video)
+            dogfooded as this preset's card preview. Resolved to a fresh signed
+            URL at read time and surfaced via `thumbnail_url` (signed URLs
+            expire, so this reference — not a durable link — is what is stored).
+            Wins over a stored literal `thumbnail_url` when both are set.
+            Agent-authored presets must include one.
+          examples: ['b3f7c1e2-8a4d-4e2b-9c1a-2f3e4d5c6b7a']
         ability_slug:
           type: string
           nullable: true
@@ -5995,6 +6469,20 @@ components:
         thumbnail_url:
           type: string
           nullable: true
+          description: >-
+            Optional literal preview media URL (self-hosted). Superseded by
+            `preview_asset_id` when both are set. Prefer `preview_asset_id` (a
+            dogfooded platform asset) — agent-authored presets must use it.
+        preview_asset_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Optional platform asset (a generated image or short video)
+            dogfooded as this preset's card preview; resolved to a fresh signed
+            URL at read time and surfaced as `thumbnail_url`. Wins over a
+            literal `thumbnail_url`. REQUIRED for agent-authored presets
+            (X-Nolgia-Surface: hermes) — a human upsert may omit it.
         ability_slug:
           type: string
           nullable: true
