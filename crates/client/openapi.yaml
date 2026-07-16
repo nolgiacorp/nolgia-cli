@@ -2910,7 +2910,20 @@ paths:
     get:
       tags: [Presets]
       operationId: listPresets
-      summary: List presets ordered by `sort_order`. Customers see the public catalog; admin accounts also see private (held) presets.
+      summary: List presets ordered by `sort_order`. Anonymous callers see the public catalog; admin accounts additionally see private (held) presets.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
+      parameters:
+        - name: featured
+          in: query
+          required: false
+          description: >
+            When `true`, return only featured presets; when `false`, only
+            non-featured ones. Omit to return both.
+          schema:
+            type: boolean
       responses:
         '200':
           description: Presets, ascending by `sort_order` (ties break by slug).
@@ -2954,7 +2967,11 @@ paths:
     get:
       tags: [Presets]
       operationId: getPreset
-      summary: Get a preset's detail. Private presets 404 for non-admin callers.
+      summary: Get a preset's detail. Anonymous callers read public presets; private presets 404 for anonymous and non-admin callers.
+      security:
+        - {}
+        - bearerAuth: []
+        - patAuth: []
       parameters:
         - $ref: '#/components/parameters/PresetSlug'
       responses:
@@ -2973,7 +2990,7 @@ paths:
     patch:
       tags: [Presets]
       operationId: updatePreset
-      summary: Update a preset's lifecycle (admin only). Mirrors abilities — the only mutable field here is `visibility`. Flipping it to `private` "holds" the preset (removed from the customer catalog), flipping back to `public` unholds it. All other fields are edited by re-POSTing `/presets` with the same slug.
+      summary: Update a preset's lifecycle (admin only). The mutable fields here are `visibility` and `featured` (at least one must be provided). Flipping `visibility` to `private` "holds" the preset (removed from the customer catalog), flipping back to `public` unholds it — mirroring abilities; `featured` curates the catalog's featured rail. All other fields are edited by re-POSTing `/presets` with the same slug.
       parameters:
         - $ref: '#/components/parameters/PresetSlug'
       requestBody:
@@ -6427,6 +6444,13 @@ components:
           description: Ascending display order on the /presets page.
         visibility:
           $ref: '#/components/schemas/PresetVisibility'
+        featured:
+          type: boolean
+          description: >-
+            Admin-curated flag surfacing the preset in the /presets page's
+            featured rail. Filterable with `GET /presets?featured=true`.
+            Always emitted by the server; optional in the schema so
+            pre-existing client fixtures stay valid.
         created_at:
           type: string
           format: date-time
@@ -6503,14 +6527,23 @@ components:
           allOf:
             - $ref: '#/components/schemas/PresetVisibility'
           description: Defaults to `private` when omitted — publish explicitly with `public`.
+        featured:
+          type: boolean
+          description: >-
+            Marks the preset for the /presets page's featured rail. Defaults
+            to `false` when omitted; the upsert replaces all fields, so
+            omitting the flag clears it.
 
     UpdatePresetRequest:
       type: object
       additionalProperties: false
-      description: Lifecycle update for an existing preset. Only `visibility` is mutable here (hold/unhold, mirroring abilities); everything else is edited by re-POSTing `/presets`.
+      description: Lifecycle update for an existing preset. The mutable fields are `visibility` (hold/unhold, mirroring abilities) and `featured` (the featured-rail curation flag); at least one must be provided. Everything else is edited by re-POSTing `/presets`.
       properties:
         visibility:
           $ref: '#/components/schemas/PresetVisibility'
+        featured:
+          type: boolean
+          description: Sets (`true`) or clears (`false`) the preset's featured flag when provided.
 
     UpdateAgentDeploymentRequest:
       type: object
