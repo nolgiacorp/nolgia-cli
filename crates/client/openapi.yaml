@@ -3807,6 +3807,22 @@ components:
           nullable: true
           maxLength: 2048
           description: Source image (https URL) for image-to-image restyle. When set, the model transforms this image instead of generating from scratch.
+        image_urls:
+          type: array
+          nullable: true
+          maxItems: 4
+          description: >-
+            Multiple reference images (https URLs) for models that support
+            multi-reference edits (OpenAI gpt-image models — e.g. character +
+            outfit + style references combined). Mutually additive with
+            `image_url` (it is treated as the first reference); at most 4
+            references total, sharing one 10 MB combined download budget.
+            Rejected (400) on models without multi-reference support.
+          items:
+            type: string
+            format: uri
+            maxLength: 2048
+          examples: [['https://assets.nolgia.ai/ref-character.png', 'https://assets.nolgia.ai/ref-outfit.png']]
         quality:
           type: string
           nullable: true
