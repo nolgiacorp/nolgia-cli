@@ -2476,6 +2476,47 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /admin/usage/summary:
+    get:
+      tags: [Admin]
+      operationId: getAdminUsageSummary
+      summary: Product-usage summary over a trailing day window (admin only).
+      description: >
+        ADMIN-ONLY: aggregated product-usage metrics for the admin panel over a
+        trailing window of `days` days ending now — active users, job counts
+        split by status and modality, the top models and top users by job
+        volume, and current marketplace ability install counts. Every number is
+        aggregated live from the database at read time (`fetched_at` timestamps
+        the read); nothing is precomputed. `not_instrumented` explicitly lists
+        product surfaces that have no server-side usage records so the admin
+        panel can label the gaps instead of implying zero. Non-admin callers
+        get `404` — the surface is invisible.
+      parameters:
+        - name: days
+          in: query
+          required: false
+          description: Size of the trailing window in days, ending now. Values outside 1..90 are rejected with `400`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 30
+      responses:
+        '200':
+          description: The aggregated usage summary for the requested window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUsageSummary'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '404':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /agent/manifest:
     get:
       tags: [Agent]
@@ -5892,6 +5933,141 @@ components:
           type: string
           format: date-time
           description: When the mutation was recorded (post-commit).
+
+    AdminUsageSummary:
+      type: object
+      additionalProperties: false
+      required:
+        [window_start, window_end, fetched_at, active_users, jobs_total,
+         jobs_by_status, jobs_by_modality, top_models, top_users,
+         ability_installs, not_instrumented]
+      description: >
+        Aggregated product-usage metrics for the admin panel, computed live
+        from the database over the trailing `days` window. Job metrics are
+        windowed on `jobs.created_at`; ability install counts are the CURRENT
+        install base (not windowed). `not_instrumented` names the product
+        surfaces with no server-side usage records.
+      properties:
+        window_start:
+          type: string
+          format: date
+          description: First day (UTC) of the trailing window.
+        window_end:
+          type: string
+          format: date
+          description: Last day (UTC) of the trailing window — the day of the read.
+        fetched_at:
+          type: string
+          format: date-time
+          description: When this summary was aggregated from the database.
+        active_users:
+          type: integer
+          description: Distinct users with at least one generation job in the window.
+        jobs_total:
+          type: integer
+          description: Total generation jobs created in the window.
+        jobs_by_status:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageStatusCount'
+          description: Windowed job counts split by job status, largest first.
+        jobs_by_modality:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageModalityCount'
+          description: Windowed job counts split by modality (the jobs.type string), largest first.
+        top_models:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageModelStat'
+          description: Top 15 models by windowed job count, largest first. Jobs without a recorded model group under `(none)`.
+        top_users:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageUserStat'
+          description: Top 10 users by windowed job count, largest first.
+        ability_installs:
+          type: array
+          items:
+            $ref: '#/components/schemas/UsageAbilityInstalls'
+          description: Current per-ability agent install counts, largest first. Not windowed.
+        not_instrumented:
+          type: array
+          items:
+            type: string
+          description: >
+            Product surfaces that have NO server-side usage records — listed so
+            the admin panel labels the gaps honestly instead of implying zero.
+
+    UsageStatusCount:
+      type: object
+      additionalProperties: false
+      required: [status, count]
+      properties:
+        status:
+          type: string
+          description: Job status string (queued, running, succeeded, failed, canceled).
+        count:
+          type: integer
+
+    UsageModalityCount:
+      type: object
+      additionalProperties: false
+      required: [modality, count]
+      properties:
+        modality:
+          type: string
+          description: Generation modality — the jobs.type string (image, video, audio).
+        count:
+          type: integer
+
+    UsageModelStat:
+      type: object
+      additionalProperties: false
+      required: [model, modality, count, succeeded, failed]
+      properties:
+        model:
+          type: string
+          description: Model id as recorded on the job; `(none)` when the job carried no model.
+        modality:
+          type: string
+          description: Generation modality — the jobs.type string.
+        count:
+          type: integer
+          description: Windowed job count for this model+modality.
+        succeeded:
+          type: integer
+          description: How many of those jobs succeeded.
+        failed:
+          type: integer
+          description: How many of those jobs failed.
+
+    UsageUserStat:
+      type: object
+      additionalProperties: false
+      required: [user_id, email, jobs]
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+        jobs:
+          type: integer
+          description: Windowed job count for this user.
+
+    UsageAbilityInstalls:
+      type: object
+      additionalProperties: false
+      required: [slug, name, installs]
+      properties:
+        slug:
+          type: string
+        name:
+          type: string
+        installs:
+          type: integer
+          description: How many agents currently have this ability installed.
 
     AgentCredentials:
       type: object
