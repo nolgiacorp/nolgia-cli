@@ -2517,6 +2517,44 @@ paths:
         default:
           $ref: '#/components/responses/ProblemResponse'
 
+  /admin/litellm/spend:
+    get:
+      tags: [Admin]
+      operationId: getAdminLiteLLMSpend
+      summary: Summarize LiteLLM proxy provider spend over a trailing window (admin only).
+      description: >
+        ADMIN-ONLY: aggregates the LiteLLM proxy's daily spend logs
+        (`GET {litellm}/spend/logs`) over a trailing `days` window into a
+        total, a per-model breakdown (spend descending), and a per-day series
+        (date ascending). fal-routed video/audio spend never reaches the proxy
+        ledger — `untracked_note` carries that caveat verbatim. Non-admin
+        callers get `403`, matching the abilities admin lifecycle endpoints.
+      parameters:
+        - name: days
+          in: query
+          required: false
+          description: Trailing window size in days. Values outside 1..90 are rejected with `400`.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 30
+      responses:
+        '200':
+          description: Aggregated proxy spend for the window.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminLiteLLMSpend'
+        '400':
+          $ref: '#/components/responses/ProblemResponse'
+        '401':
+          $ref: '#/components/responses/ProblemResponse'
+        '403':
+          $ref: '#/components/responses/ProblemResponse'
+        default:
+          $ref: '#/components/responses/ProblemResponse'
+
   /agent/manifest:
     get:
       tags: [Agent]
@@ -5998,6 +6036,77 @@ components:
           description: >
             Product surfaces that have NO server-side usage records — listed so
             the admin panel labels the gaps honestly instead of implying zero.
+    AdminLiteLLMSpend:
+      type: object
+      additionalProperties: false
+      required: [window_start, window_end, total_usd, by_model, by_day, untracked_note, fetched_at]
+      description: >
+        Aggregated LiteLLM proxy spend over a trailing window, assembled from
+        the proxy's daily spend logs at read time. Covers only spend the proxy
+        meters (OpenAI/Gemini-routed models) — see `untracked_note`.
+      properties:
+        window_start:
+          type: string
+          format: date
+          description: First day of the window (inclusive).
+          examples: ['2026-06-18']
+        window_end:
+          type: string
+          format: date
+          description: Last day of the window (inclusive).
+          examples: ['2026-07-18']
+        total_usd:
+          type: number
+          format: double
+          description: Total proxy-metered spend over the window, in USD.
+          examples: [196.87]
+        by_model:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminLiteLLMSpendModel'
+          description: Per-model spend, sorted by usd descending.
+        by_day:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminLiteLLMSpendDay'
+          description: Per-day spend, sorted by date ascending.
+        untracked_note:
+          type: string
+          description: Caveat naming the spend the LiteLLM proxy does not meter (fal video/audio).
+        fetched_at:
+          type: string
+          format: date-time
+          description: When the summary was assembled from the proxy.
+    AdminLiteLLMSpendModel:
+      type: object
+      additionalProperties: false
+      required: [model, usd]
+      description: Spend attributed to one LiteLLM model over the window.
+      properties:
+        model:
+          type: string
+          description: Model name as recorded by the LiteLLM proxy's spend logs.
+          examples: ['openai/gpt-image-2']
+        usd:
+          type: number
+          format: double
+          description: Spend attributed to this model over the window, in USD.
+          examples: [0.05]
+    AdminLiteLLMSpendDay:
+      type: object
+      additionalProperties: false
+      required: [date, usd]
+      description: Spend recorded by the LiteLLM proxy on one day.
+      properties:
+        date:
+          type: string
+          format: date
+          examples: ['2026-07-17']
+        usd:
+          type: number
+          format: double
+          description: Spend recorded on this day, in USD.
+          examples: [0.05]
 
     UsageStatusCount:
       type: object
