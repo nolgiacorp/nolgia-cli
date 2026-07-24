@@ -3611,6 +3611,15 @@ components:
             Maximum element/reference images per request
             (`element_asset_ids` + `image_urls` combined). 0 when
             unsupported.
+        element_refs_duration_seconds:
+          type: integer
+          minimum: 1
+          description: |
+            When present, requests that attach element/reference images must
+            use exactly this `duration_seconds` (Veo 3.1 reference images
+            require 8-second clips). Clients should snap the duration when
+            references are attached. Absent when references carry no
+            duration constraint.
         audio_refs_max:
           type: integer
           minimum: 0
